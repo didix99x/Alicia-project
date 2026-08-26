@@ -1,6 +1,6 @@
 {
     "ollama_host": "http://localhost:11434",
-    "chat_model": "llama3.2",
+    "chat_model": "llama3.1",
     "vision_model": "qwen2.5vl:7b",
     "screen_interval": 6,
     "screen_cooldown": 20,
@@ -10,8 +10,9 @@
     "user_name": "Anderson",
     "db_path": "alicia_memory.db",
     "history_limit": 30,
-    "modo_descanso": true,
+    "modo_descanso": false,
     "enable_audio": true,
     "voice_speed": 100,
-    "debug_mode": false
+    "debug_mode": false,
+    "mic_index": 1
 }

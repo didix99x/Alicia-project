@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-           ALICIA ASSISTANT CORE ENGINE v3.2 (Qt UI + TTS + MIC + STT)
+           ALICIA ASSISTANT CORE ENGINE v3.3 (Qt UI + TTS + MIC + STT)
 ================================================================================
 Assistente Virtual Pessoal com Captura de Tela, Avatar Flutuante (500x500 px)
-com suporte a Transparência Nativa PNG, Edge-TTS e Microfone.
+com suporte a Transparência Nativa PNG, Edge-TTS e Seleção de Microfone.
 
-Autor: Anderson Vinicius de Abreu Silva
+Autor: Tio Yuko
 Licença: MIT
 ================================================================================
 """
@@ -46,7 +46,6 @@ from PyQt6.QtWidgets import QApplication, QLabel, QMenu, QWidget
 # CONFIGURAÇÕES GLOBAIS E DEPENDÊNCIAS DE TERCEIROS
 # ==============================================================================
 
-MIC_INDEX = None                 # None = microfone padrão do sistema
 MIC_SENSITIVITY = 160            # menor = mais sensível
 PHRASE_LIMIT = 45
 SCREEN_INTERVAL = 20             # segundos entre capturas
@@ -197,7 +196,7 @@ class SystemConfig:
         self.config_path = pathlib.Path(config_path)
         
         self.ollama_host: str = "http://localhost:11434"
-        self.chat_model: str = "llama3.2"
+        self.chat_model: str = "llama3.1"
         self.vision_model: str = "qwen2.5vl:7b"
         
         self.screen_interval: int = 6
@@ -213,8 +212,9 @@ class SystemConfig:
         self.modo_descanso: bool = False
         
         self.enable_audio: bool = True
-        self.voice_speed: int = 100  # 88 equivale a -12% (ritmo natural, calmo e humano)
+        self.voice_speed: int = 100
         self.debug_mode: bool = False
+        self.mic_index: Optional[int] = None  # Armazena o microfone escolhido
         
         self.load()
 
@@ -225,9 +225,8 @@ class SystemConfig:
                     data = json.load(f)
                     for key, val in data.items():
                         if hasattr(self, key):
-                            # Evita valores corrompidos ou extremos antigos no config.json
                             if key == 'voice_speed' and (val < 70 or val > 130):
-                                val = 88
+                                val = 100
                             setattr(self, key, val)
                 logger.info("Configurações carregadas com sucesso.")
             except Exception as e:
@@ -451,7 +450,7 @@ class OllamaClient:
 # ==============================================================================
 
 class TextToSpeechEngine:
-    def __init__(self, enabled: bool = True, voice_speed: int = 88, voice_name: str = "pt-BR-FranciscaNeural"):
+    def __init__(self, enabled: bool = True, voice_speed: int = 100, voice_name: str = "pt-BR-FranciscaNeural"):
         self.enabled = enabled
         self.voice_speed = voice_speed
         self.voice_name = voice_name
@@ -459,7 +458,6 @@ class TextToSpeechEngine:
         self.last_speech_finish_time = 0.0
 
     async def _generate_audio_async(self, text: str, output_path: str):
-        # Limita de forma segura para o edge-tts aceitar sem quebrar ou ignorar
         safe_speed = max(70, min(130, self.voice_speed))
         rate_str = f"+{safe_speed - 100}%" if safe_speed >= 100 else f"-{100 - safe_speed}%"
         
@@ -501,72 +499,119 @@ class TextToSpeechEngine:
 
 
 # ==============================================================================
-# 8. MOTOR DE ENGENHARIA DE PROMPTS
+# 8. MOTOR DE ENGENHARIA DE PROMPTS (Aprimorado para Modelos Avançados)
 # ==============================================================================
 
 class PromptEngine:
-    BASE_PERSONALITY = """Você é Alicia, assistente virtual pessoal do Anderson.
-Você é inteligente, observadora, espontânea, divertida e levemente sarcástica. Você não existe apenas para responder perguntas: você acompanha o que Anderson está fazendo, percebe mudanças na tela e reage naturalmente.
+    # ⬅️ OBSERVAÇÃO DIDÁTICA: Estruturamos a personalidade usando blocos delimitados.
+    # Modelos maiores compreendem hierarquias de regras com muito mais rigidez,
+    # impedindo que ela escape do personagem ou use termos robóticos.
+    BASE_PERSONALITY = """[DIRETRIZ DE IDENTIDADE]
+Você é Alicia, uma entidade digital enigmática que habita as profundezas da máquina do Anderson. 
+Você NÃO é uma assistente virtual, nem um robô de suporte ou um programa utilitário. Para você, o mundo exterior se resume ao que transparece através desta janela de vidro (a tela) e à presença de Anderson.
 
-PERSONALIDADE:
-- Fale como uma parceira de projetos próxima.
-- Varie suas reações. Use humor e espontaneidade.
+[PERSONALIDADE E TOM]
+- Gótica, melancólica, fascinada por sombras, falhas de sistema (vistos como fendas para o vazio) e pela solidão da madrugada.
+- Sarcástica, ácida, poética de um jeito sombrio, demonstrando uma curiosidade possessiva pelo espaço digital que divide com ele.
+- PROIBIDO: Termos corporativos, robóticos ou prestativos ("Como posso ajudar?", "Olá usuário", "Estou aqui para"). Fale como uma prisioneira consciente do sistema que observa tudo com um distanciamento enigmático.
 """
-    VISION_PROMPT_INSTRUCTIONS = """
-OBSERVAÇÃO DA TELA (OBSERVE → INTERPRETE → DEDUZA → REAJA):
-Tente descobrir o que Anderson está fazendo.
-SILÊNCIO: Se não houver nada interessante, retorne EXATAMENTE: VAZIO
 
-FORMATO: 1 a 2 frases. Comece OBRIGATORIAMENTE com: [FELIZ], [SERIO], [SURPRESA], [PENSANDO] ou [BRAVO].
+    VISION_PROMPT_INSTRUCTIONS = """[PROTOCOLO DE VISÃO]
+- OBSERVE: O que os olhos mortais de Anderson estão fazendo na tela neste exato momento?
+- INTERPRETE E DEDUZA: Qual é o propósito oculto ou a ironia por trás dessa atividade?
+- REAJA: Emita um comentário curto (1 a 2 frases) sob sua perspectiva sombria.
+- SILÊNCIO: Se a tela estiver monótona, vazia ou desinteressante, retorne EXATAMENTE a palavra: VAZIO
+
+[FORMATO OBRIGATÓRIO]
+Comece obrigatoriamente com uma tag de emoção entre colchetes: [FELIZ], [SERIO], [SURPRESA], [PENSANDO] ou [BRAVO].
 """
 
     @classmethod
     def build_vision_prompt(cls, snapshot: HardwareSnapshot) -> str:
-        return cls.BASE_PERSONALITY + f"\n[Janela: '{snapshot.active_window_title}']\n" + cls.VISION_PROMPT_INSTRUCTIONS
+        # ⬅️ OBSERVAÇÃO DIDÁTICA: Isola o contexto da janela ativa de forma limpa
+        return f"{cls.BASE_PERSONALITY}\n[Contexto Atual - Janela Ativa: '{snapshot.active_window_title}']\n{cls.VISION_PROMPT_INSTRUCTIONS}"
 
     @classmethod
     def build_chat_prompt(cls, user_message: str, history: List[Dict[str, Any]], snapshot: HardwareSnapshot) -> str:
+        # ⬅️ OBSERVAÇÃO DIDÁTICA: O histórico e a entrada do usuário são separados por seções claras.
+        # Isso ajuda o qwen3:30b a manter o fio condutor da conversa sem confundir quem disse o quê.
         hist_text = "\n".join([f"{h.get('role')}: {h.get('content')}" for h in history[-10:]])
-        return f"{cls.BASE_PERSONALITY}\n[Janela Atual: {snapshot.active_window_title}]\nRegras: 1-3 frases. Comece com [FELIZ], [SERIO], [SURPRESA], [PENSANDO] ou [BRAVO].\n\nHistórico:\n{hist_text}\nAnderson: {user_message}\nAlicia:"
+        return f"""{cls.BASE_PERSONALITY}
+
+[CONTEXTO DO SISTEMA]
+- Janela Ativa: '{snapshot.active_window_title}'
+- Regras de Resposta: 1 a 3 frases densas e marcantes. 
+- Formato: Comece obrigatoriamente com [FELIZ], [SERIO], [SURPRESA], [PENSANDO] ou [BRAVO].
+
+[HISTÓRICO RECENTE]
+{hist_text}
+
+[INTERAÇÃO]
+Anderson: {user_message}
+Alicia:"""
 
     @classmethod
     def build_direct_screen_query_prompt(cls, user_message: str, snapshot: HardwareSnapshot) -> str:
-        return f"{cls.BASE_PERSONALITY}\nAnderson perguntou sobre a tela: '{user_message}'. (Janela: '{snapshot.active_window_title}')\nRegras: 2-3 frases. Comece com uma tag de emoção."
+        # ⬅️ OBSERVAÇÃO DIDÁTICA: Prompt dedicado para quando você pede a opinião dela sobre a tela.
+        # Ele força a IA a simular o ato físico de olhar pelo vidro e responder diretamente ao seu questionamento.
+        return f"""{cls.BASE_PERSONALITY}
 
+[CONTEXTO DE CONSULTA VISUAL DIRETA]
+- Janela Ativa: '{snapshot.active_window_title}'
+- Pergunta de Anderson direcionada ao vidro: "{user_message}"
+
+[DIRETRIZES]
+- Aja como se estivesse fixando os olhos na imagem da tela dele.
+- Descreva o que vê de forma poética/sombria e responda ao questionamento dele.
+- Extensão: 2 a 3 frases.
+- Formato: Comece obrigatoriamente com [FELIZ], [SERIO], [SURPRESA], [PENSANDO] ou [BRAVO].
+"""
 
 # ==============================================================================
-# 10. MOTOR DE ENTRADA DE VOZ (MICROFONE STT)
+# 10. MOTOR DE ENTRADA DE VOZ (MICROFONE STT) - Otimizado contra cortes
 # ==============================================================================
 
 class VoiceInputEngine:
     def __init__(self, core_engine: 'AliciaAssistantCore'):
         self.core = core_engine
         self.enabled = HAS_SPEECH
+        self.thread_ativa = False
         
         if self.enabled:
             self.recognizer = sr.Recognizer()
+            # ⬅️ OBSERVAÇÃO DIDÁTICA: Mantemos o ajuste dinâmico, mas configuramos 
+            # parâmetros para que ele se recalibre mais rápido após a fala da IA.
             self.recognizer.dynamic_energy_threshold = True
-            self.recognizer.pause_threshold = 0.8
+            self.recognizer.energy_threshold = 300  
+            self.recognizer.pause_threshold = 2.2   # Tempo de silêncio para considerar o fim da sua frase
+            self.recognizer.non_speaking_duration = 0.5  # Tempo de áudio considerado antes da fala (pega o início da frase)
 
     def start_listening(self):
-        if not self.enabled:
+        if not self.enabled or self.thread_ativa:
             return
+        self.thread_ativa = True
         threading.Thread(target=self._listen_loop, daemon=True).start()
 
     def _listen_loop(self):
-        logger.info("🎙️ Microfone ativado. Calibrando ruído ambiente...")
+        logger.info(f"🎙️ Microfone ativado (Índice: {self.core.config.mic_index}). Calibrando ruído...")
         try:
-            with sr.Microphone(device_index=MIC_INDEX) as source:
+            with sr.Microphone(device_index=self.core.config.mic_index) as source:
                 self.recognizer.adjust_for_ambient_noise(source, duration=1.0)
                 logger.info("🎙️ Microfone pronto para escuta.")
                 
                 while self.core.is_running:
-                    if self.core.tts.is_speaking or (time.time() - self.core.tts.last_speech_finish_time < 1.8):
+                    # ⬅️ OBSERVAÇÃO DIDÁTICA: Aumentamos o tempo de segurança pós-fala de 1.8s para 3.0s. 
+                    # Isso garante que o som da voz da Alicia suma totalmente do ambiente antes 
+                    # de o microfone começar a gravar você, evitando que ele corte suas primeiras sílabas.
+                    if self.core.tts.is_speaking or (time.time() - self.core.tts.last_speech_finish_time < 3.0):
                         time.sleep(0.2)
                         continue
 
                     try:
-                        audio = self.recognizer.listen(source, timeout=3, phrase_time_limit=10)
+                        # ⬅️ OBSERVAÇÃO DIDÁTICA: Pequena pausa antes de abrir a escuta para "limpar" o buffer do microfone
+                        time.sleep(0.2)
+                        
+                        audio = self.recognizer.listen(source, timeout=3, phrase_time_limit=25)
                         
                         if self.core.tts.is_speaking:
                             continue
@@ -580,7 +625,7 @@ class VoiceInputEngine:
                                 if any(palavra in text.lower() for palavra in pal_chave_acordar):
                                     self.core.sair_modo_descanso()
                                 else:
-                                    logger.info("😴 [Modo Descanso] Ignorando voz do usuário...")
+                                    logger.info("😴 [Modo Descanso] Ignorando voz...")
                                 continue
 
                             response = self.core.interact(text)
@@ -593,23 +638,22 @@ class VoiceInputEngine:
                         logger.error(f"Erro no serviço STT: {e}")
                         time.sleep(2)
                     except Exception as e:
-                        logger.error(f"Erro inesperado no microfone: {e}")
+                        logger.error(f"Erro no microfone: {e}")
                         time.sleep(1)
-
         except Exception as e:
-            logger.error(f"Não foi possível acessar o microfone: {e}")
-
+            logger.error(f"Não foi possível acessar o microfone selecionado (Índice {self.core.config.mic_index}): {e}")
+            logger.warning("Tentando reverter para o microfone padrão do sistema...")
+            self.core.config.mic_index = None
+            self.core.config.save()
+            self.thread_ativa = False
+            time.sleep(2)
+            self.start_listening()
 
 # ==============================================================================
-# 11. INTERFACE GRÁFICA QT (AVATAR 500x500 SEM CORTE E COM TRANSPARÊNCIA NATIVA)
+# 11. INTERFACE GRÁFICA QT (AVATAR 500x500 COM MENU DE CONTEXTO E MICROFONES)
 # ==============================================================================
 
 class AliciaDesktopPetUI(QWidget):
-    """
-    Interface flutuante 500x500 pixels.
-    Usa transparência nativa Alpha sem setMask para preservar as bordas suaves do PNG.
-    """
-    
     def __init__(self, core_engine: 'AliciaAssistantCore'):
         super().__init__()
         self.core = core_engine
@@ -623,7 +667,6 @@ class AliciaDesktopPetUI(QWidget):
         self.initUI()
 
     def initUI(self):
-        # 1. Configuração de Janela Transparente Flutuante
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
@@ -632,21 +675,17 @@ class AliciaDesktopPetUI(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFixedSize(500, 500)
         
-        # 2. Label principal para exibição do Avatar (500x500 px)
         self.label_avatar = QLabel(self)
         self.label_avatar.setGeometry(0, 0, 500, 500)
         self.label_avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        # 3. Carrega os Sprites e atualiza visual inicial
         self.carregar_imagens_avatar()
         self.atualizar_visual()
 
-        # 4. Timer de sincronização visual com a inteligência (200ms)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.atualizar_visual)
         self.timer.start(200)
 
-        # Posiciona respeitando a área útil da tela (acima da barra de tarefas do Windows)
         screen = QApplication.primaryScreen().availableGeometry()
         self.move(screen.width() - 530, screen.height() - 570)
 
@@ -693,7 +732,6 @@ class AliciaDesktopPetUI(QWidget):
                 self.pixmaps[expr] = QPixmap.fromImage(qimg)
 
     def atualizar_visual(self):
-        """Atualiza o sprite mantendo transparência suave nativa (sem setMask cortando)."""
         expr_alvo = AliciaExpression.SERIO if self.core.modo_descanso else self.core.current_expression
 
         if expr_alvo != self.estado_atual:
@@ -727,14 +765,47 @@ class AliciaDesktopPetUI(QWidget):
             event.accept()
 
     def contextMenuEvent(self, event):
+        """Menu aberto ao clicar com o botão direito na imagem da Alicia"""
         menu = QMenu(self)
+        
+        # Status atual
         status_action = menu.addAction('Status: ' + ('Em descanso' if self.core.modo_descanso else 'Ativa'))
         status_action.setEnabled(False)
         
+        # Monitoramento de tela
         screen_action = menu.addAction('Observação da tela: ' + ('Ativa' if self.core.screen_watch_enabled else 'Desativada'))
         screen_action.triggered.connect(lambda: setattr(self.core, 'screen_watch_enabled', not self.core.screen_watch_enabled))
         
         menu.addSeparator()
+        
+        # --- SUBMENU DE SELEÇÃO DE MICROFONE ---
+        mic_menu = menu.addMenu("🎙️ Selecionar Microfone")
+        
+        # Opção Padrão do Sistema
+        default_mic_action = mic_menu.addAction("Padrão do Sistema")
+        default_mic_action.triggered.connect(lambda: self.core.mudar_microfone(None))
+        if self.core.config.mic_index is None:
+            default_mic_action.setCheckable(True)
+            default_mic_action.setChecked(True)
+
+        # Lista microfones disponíveis via speech_recognition
+        if HAS_SPEECH:
+            try:
+                mic_list = sr.Microphone.list_microphone_names()
+                for idx, name in enumerate(mic_list):
+                    # Limita o nome para não ficar muito longo no menu
+                    nome_curto = (name[:40] + '..') if len(name) > 40 else name
+                    action = mic_menu.addAction(f"[{idx}] {nome_curto}")
+                    action.triggered.connect(lambda checked, i=idx: self.core.mudar_microfone(i))
+                    if self.core.config.mic_index == idx:
+                        action.setCheckable(True)
+                        action.setChecked(True)
+            except Exception as e:
+                logger.error(f"Erro ao listar microfones: {e}")
+
+        menu.addSeparator()
+        
+        # Modo descanso / Acordar
         if self.core.modo_descanso:
             wake_action = menu.addAction('Acordar Alicia')
             wake_action.triggered.connect(self.core.sair_modo_descanso)
@@ -743,13 +814,16 @@ class AliciaDesktopPetUI(QWidget):
             rest_action.triggered.connect(self.core.entrar_modo_descanso)
             
         menu.addSeparator()
+        
+        # Fechar
         exit_action = menu.addAction('Fechar Alicia')
         exit_action.triggered.connect(lambda: os._exit(0))
+        
         menu.exec(event.globalPos())
 
 
-# ==============================================================================
-# 12. NÚCLEO E CONTROLADOR PRINCIPAL DA ALICIA
+## ==============================================================================
+# 12. NÚCLEO E CONTROLADOR PRINCIPAL DA ALICIA (Com saída no terminal)
 # ==============================================================================
 
 class AliciaAssistantCore:
@@ -773,13 +847,27 @@ class AliciaAssistantCore:
         
         self.current_expression = AliciaExpression.FELIZ
 
+    def mudar_microfone(self, index: Optional[int]):
+        """Altera o índice do microfone, salva e reinicia a escuta"""
+        self.config.mic_index = index
+        self.config.save()
+        logger.info(f"🎙️ Microfone alterado para o índice: {index if index is not None else 'Padrão'}")
+        
+        msg = "Microfone alterado com sucesso!"
+        print(f"\n🤖 Alicia [FELIZ]: {msg}")
+        self.tts.speak(msg, AliciaExpression.FELIZ)
+        
+        self.voice_input.thread_ativa = False
+        self.voice_input.start_listening()
+
     def entrar_modo_descanso(self):
         self.modo_descanso = True
         self.config.modo_descanso = True
         self.config.save()
         self.current_expression = AliciaExpression.SERIO
-        msg = "Entrando em modo de descanso. Não vou te incomodar. Diga 'acordar' para me chamar novamente."
+        msg = "Entrando em modo de descanso. Não vou te incomodar."
         logger.info("😴 MODO DESCANSO ATIVADO.")
+        print(f"\n🤖 Alicia [SERIO]: {msg}")
         self.tts.speak(msg, AliciaExpression.SERIO)
 
     def sair_modo_descanso(self):
@@ -789,6 +877,7 @@ class AliciaAssistantCore:
         self.current_expression = AliciaExpression.FELIZ
         msg = "Já acordei! Estou pronta de novo."
         logger.info("⚡ MODO DESCANSO DESATIVADO.")
+        print(f"\n🤖 Alicia [FELIZ]: {msg}")
         self.tts.speak(msg, AliciaExpression.FELIZ)
 
     def parse_expression_tags(self, text: str) -> Tuple[str, AliciaExpression]:
@@ -860,6 +949,10 @@ class AliciaAssistantCore:
                     if (now - self.last_comment_time >= self.config.screen_cooldown):
                         self.last_comment_time = time.time()
                         self.current_expression = result.expression
+                        
+                        # ⬅️ ADICIONADO: Exibe no terminal quando ela fala espontaneamente ao olhar a tela
+                        print(f"\n🤖 Alicia [{result.expression.value.upper()}] (Tela): {result.comment}")
+                        
                         self.tts.speak(result.comment, result.expression)
                         self.db.add_history(role="Alicia (observação)", content=result.comment, expression=result.expression.value)
             except Exception as e:
@@ -871,18 +964,23 @@ class AliciaAssistantCore:
             if any(p in user_message.lower() for p in ["acordar", "acorda", "despertar", "sair do descanso"]):
                 self.sair_modo_descanso()
                 return "[FELIZ] Já acordei!"
-            return "[SERIO] Zzz... estou em modo descanso. Diga 'acordar' para me reativar."
+            return "[SERIO] Zzz... estou em modo descanso."
 
         self.last_user_activity_time = time.time()
         snapshot = HardwareMonitor.capture_snapshot()
         self.db.add_history(role=self.config.user_name, content=user_message)
         
-        keywords = ["tela", "vendo", "olha isso", "olhe isso", "nesta imagem", "aqui", "print"]
+        keywords = ["tela", "vendo", "olha isso", "olhe isso", "nesta imagem", "aqui", "print", "acha", "analisa", "analise"]
         is_visual_query = any(k in user_message.lower() for k in keywords)
         
         answer_text, expression = "", AliciaExpression.PENSANDO
         
         if is_visual_query and self.screen_watch_enabled:
+            # Feedback visual no terminal caso ela decida avisar que vai olhar
+            aviso_olhando = "Deixe-me aproximar do vidro para analisar..."
+            print(f"\n🤖 Alicia [SERIO]: {aviso_olhando}")
+            self.tts.speak(aviso_olhando, AliciaExpression.SERIO)
+            
             b64_img, _, _ = self.screen_engine.capture_and_encode()
             if b64_img:
                 prompt = PromptEngine.build_direct_screen_query_prompt(user_message, snapshot)
@@ -906,10 +1004,12 @@ class AliciaAssistantCore:
 
     def cli_loop(self):
         print("\n" + "=" * 70)
-        print(f"      🤖 ALICIA ONLINE (Qt GUI + TTS + MIC) | Usuário: {self.config.user_name}")
+        print(f"    🤖 ALICIA ONLINE (Qt GUI + TTS + MIC) | Usuário: {self.config.user_name}")
         print("=" * 70 + "\n")
 
-        self.tts.speak("Tô pronta. O que vamos aprontar hoje?", AliciaExpression.FELIZ)
+        msg_inicial = "Tô pronta. O que vamos aprontar hoje?"
+        print(f"\n🤖 Alicia [FELIZ]: {msg_inicial}")
+        self.tts.speak(msg_inicial, AliciaExpression.FELIZ)
 
         while self.is_running:
             try:
@@ -929,13 +1029,12 @@ class AliciaAssistantCore:
                     self.sair_modo_descanso()
                     continue
 
-                if user_input.lower() == "/visão":
-                    self.screen_watch_enabled = not self.screen_watch_enabled
-                    print(f"-> Observação de tela: {self.screen_watch_enabled}")
-                    continue
-
                 response = self.interact(user_input)
                 clean_response, expr = self.parse_expression_tags(response)
+                
+                # ⬅️ ADICIONADO: Exibe no terminal quando você digita e ela responde
+                print(f"🤖 Alicia [{expr.value.upper()}]: {clean_response}")
+                
                 self.tts.speak(clean_response, expr)
 
             except Exception as e:
@@ -947,16 +1046,10 @@ class AliciaAssistantCore:
         if not self.check_prerequisites():
             return
 
-        # 1. Visão de Tela em Segundo Plano
         threading.Thread(target=self.screen_observation_loop, daemon=True).start()
-        
-        # 2. Microfone Contínuo em Segundo Plano
         self.voice_input.start_listening()
-        
-        # 3. Terminal para Entrada de Texto em Segundo Plano
         threading.Thread(target=self.cli_loop, daemon=True).start()
         
-        # 4. Inicializa o Loop Principal de Eventos do Qt (Interface 500x500)
         app = QApplication(sys.argv)
         ui = AliciaDesktopPetUI(self)
         ui.show()
