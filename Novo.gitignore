@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*$py.class
+logs/
+alicia_memory.db
+.vscode/
+.idea/
