@@ -67,6 +67,17 @@ class AliciaDesktopPetUI(QWidget):
         self.label_avatar.setGeometry(0, 0, 500, 500)
         self.label_avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
+        # Selo do modo sem filtro: visível enquanto o modo estiver ligado (atualizado por _atualizar_selo_sem_filtro).
+        self.badge_sem_filtro = QLabel("🔥 SEM FILTRO", self)
+        self.badge_sem_filtro.setStyleSheet(
+            "background-color: rgba(180, 30, 40, 220); color: white; font-weight: bold; "
+            "font-size: 13px; padding: 3px 10px; border-radius: 9px;")
+        self.badge_sem_filtro.adjustSize()
+        self.badge_sem_filtro.move(10, 10)
+        self.badge_sem_filtro.hide()
+        self._sem_filtro_visto = False
+        self._sem_filtro_checado = 0.0
+
         self.carregar_imagens_avatar()
         self.atualizar_visual()
 
@@ -230,8 +241,22 @@ class AliciaDesktopPetUI(QWidget):
             return bool(getattr(tts, "audio_playing", False))      # a boca acompanha o SOM, não a geração da fala
         return False
 
+    def _atualizar_selo_sem_filtro(self, agora: float):
+        badge = self.__dict__.get("badge_sem_filtro")
+        if badge is None or agora - self._sem_filtro_checado < 0.5:      # consulta o banco no máximo 2x por segundo
+            return
+        self._sem_filtro_checado = agora
+        try:
+            ativo = bool(self.core.sem_filtro_ativo())
+        except Exception:
+            return
+        if ativo != self._sem_filtro_visto:
+            self._sem_filtro_visto = ativo
+            badge.setVisible(ativo)
+
     def atualizar_visual(self):
         agora = time.monotonic()
+        self._atualizar_selo_sem_filtro(agora)
         expr_alvo = AliciaExpression.SERIO if self.core.modo_descanso else self.core.current_expression
 
         # Depois de alguns segundos com uma emoção, ela relaxa para o rosto neutro (que respira e pisca).
@@ -313,6 +338,8 @@ class AliciaDesktopPetUI(QWidget):
             status_txt = f'Modo Gamer — {jogo}' if jogo else 'Modo Gamer (procurando jogo...)'
         else:
             status_txt = 'Ativa'
+        if self.core.sem_filtro_ativo():
+            status_txt += ' · SEM FILTRO'
         status_action = menu.addAction(f'Status: {status_txt}')
         status_action.setEnabled(False)
         
@@ -334,6 +361,11 @@ class AliciaDesktopPetUI(QWidget):
         screen_action = menu.addAction('Observação de Tela: ' + ('Ligada' if self.core.screen_watch_enabled else 'Desligada'))
         screen_action.triggered.connect(lambda: setattr(self.core, 'screen_watch_enabled', not self.core.screen_watch_enabled))
         
+        sf_action = menu.addAction('🔥 Modo sem filtro')
+        sf_action.setCheckable(True)
+        sf_action.setChecked(self.core.sem_filtro_ativo())
+        sf_action.triggered.connect(lambda checked: self.core.set_sem_filtro(bool(checked)))
+
         menu.addSeparator()
 
         acao_poker = menu.addAction("🃏 Jogar pôquer com a Alicia")

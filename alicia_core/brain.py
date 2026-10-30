@@ -84,6 +84,7 @@ class ConversationBrain:
         now: Optional[datetime] = None,
         personality: str = "normal",
         call_context: str = "",
+        sem_filtro: bool = False,
     ) -> List[Dict[str, str]]:
         """Monta a lista de mensagens (já normalizada). NÃO inclui a mensagem atual no histórico duas vezes."""
         limit = int(getattr(self.config, "brain_history_messages", 20))
@@ -100,6 +101,7 @@ class ConversationBrain:
             personality=personality,
             avoid_openers=self._recent_openers(history),
             call_context=call_context,
+            sem_filtro=sem_filtro,
         )
         messages: List[Dict[str, str]] = [{"role": "system", "content": system}]
         history = self._history_for_style(history)
@@ -114,6 +116,8 @@ class ConversationBrain:
         current = user_message
         if personality and personality != PromptEngine.DEFAULT_PERSONALITY:
             current = f"{user_message}\n\n{PromptEngine.style_reminder(personality)}"
+        if sem_filtro:
+            current = f"{current}\n\n{PromptEngine.SEM_FILTRO_REMINDER}"
         messages.append({"role": "user", "content": current})
         return normalize_messages(messages)
 
@@ -154,13 +158,20 @@ class ConversationBrain:
     def reply(self, user_message: str, user_name: str, visual_context: str = "", call_context: str = "") -> str:
         """Texto bruto do modelo (com tag de expressão). Levanta BrainError."""
         personality = self.db.get_profile("personality") or PromptEngine.DEFAULT_PERSONALITY
+        sem_filtro = self.db.get_profile("sem_filtro") == "1"
         messages = self.build_messages(user_message, user_name, visual_context, personality=personality,
-                                       call_context=call_context)
+                                       call_context=call_context, sem_filtro=sem_filtro)
         kwargs = dict(
             temperature=float(getattr(self.config, "brain_temperature", 0.8)),
             top_p=float(getattr(self.config, "brain_top_p", 0.9)),
             max_tokens=int(getattr(self.config, "brain_max_tokens", 400)),
         )
+        if sem_filtro:      # parâmetros próprios do modo; desligado, os acima valem de novo
+            kwargs.update(
+                temperature=float(getattr(self.config, "sem_filtro_temperature", 0.95)),
+                top_p=float(getattr(self.config, "sem_filtro_top_p", 0.95)),
+                max_tokens=int(getattr(self.config, "sem_filtro_max_tokens", 450)),
+            )
         try:
             return self.client.chat(messages, **kwargs)
         except BrainError as e:
@@ -251,6 +262,31 @@ def _parse_personality_flexible(low: str) -> Optional[Tuple[str, Optional[str]]]
     return ("personality", key) if key else None
 
 
+_SF_OFF = re.compile(r"\b(desativ\w*|deslig\w*|sai|saia|sair|tira|tire|tirar|encerr\w*|par[ae]r?|cancel\w*)\b")
+_SF_ON = re.compile(r"\b(ativ\w*|lig[ae]\w*|entr\w*|colo\w*|fique|fica|ficar|vai|va|vamos|bora|muda\w*|volt\w*)\b")
+_SF_FREE = re.compile(r"\b(?:pode\s+)?fal\w*\s+livremente\b")
+
+
+def parse_sem_filtro(low: str) -> Optional[str]:
+    """'on' | 'off' | None para os comandos do modo sem filtro (texto já sem acentos e em minúsculas).
+    Frase curta e sem negação, para 'esse cara é sem filtro' ou 'não ative o modo sem filtro' não dispararem."""
+    words = re.sub(r"[^a-z0-9\s]", " ", low).split()
+    if not words or len(words) > 10:
+        return None
+    joined = " ".join(words)
+    if re.search(r"\b(nao|nunca|jamais)\b", joined):
+        return None
+    if "sem filtro" in joined:
+        if _SF_OFF.search(joined):
+            return "off"
+        if "modo sem filtro" in joined or _SF_ON.search(joined):
+            return "on"
+        return None
+    if _SF_FREE.search(joined):
+        return "on"
+    return None
+
+
 def parse_command(text: str) -> Optional[Tuple[str, Optional[str]]]:
     """Reconhece ('rename'|'remember'|'forget'|'list', argumento) ou None."""
     t = re.sub(r"\s+", " ", (text or "").strip())
@@ -263,6 +299,9 @@ def parse_command(text: str) -> Optional[Tuple[str, Optional[str]]]:
         return "export", None
     if low in ("/novoassunto", "/novo", "nova conversa", "vamos comecar uma nova conversa", "mudando de assunto"):
         return "newctx", None
+    sf = parse_sem_filtro(low)
+    if sf:
+        return f"sem_filtro_{sf}", None
     if low in ("/poker", "/poquer", "/pôquer") or _POKER_REQUEST.search(low):
         return "poker", None
     if low == "/personalidade" or low in ("trocar personalidade", "mudar personalidade", "menu de personalidade"):

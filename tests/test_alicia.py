@@ -576,7 +576,7 @@ class TestLauncherHelpers(unittest.TestCase):
     def test_requirements_parsing_and_import_names(self):
         import launcher
         specs = launcher.parse_requirements(APP_DIR / "requirements-optional.txt")
-        self.assertIn("edge-tts>=6.1.9", specs)
+        self.assertIn("edge-tts>=7.0.0", specs)
         self.assertTrue(all("#" not in s for s in specs))
         self.assertEqual(launcher.import_name("Pillow>=10.0"), "PIL")
         self.assertEqual(launcher.import_name("edge-tts>=6.1.9"), "edge_tts")

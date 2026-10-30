@@ -496,6 +496,22 @@ Não explique o raciocínio.
 - Comece SEMPRE com exatamente uma tag: [FELIZ], [SERIO], [SURPRESA], [PENSANDO] ou [BRAVO].
 """
 
+
+    # ------------------------------------------------------------------
+    # MODO SEM FILTRO: camada opcional por cima da personalidade escolhida (não a substitui).
+    # Só solta linguagem e formalidade; as proteções contra risco real continuam.
+    # ------------------------------------------------------------------
+    SEM_FILTRO_RULES = """[MODO SEM FILTRO — ATIVO. Conversa descontraída entre amigos]
+Você continua sendo a Alicia (gótica, sarcástica, analítica, levemente provocadora). Este modo só solta a linguagem e a formalidade; não troca quem você é.
+- Fale como gente de verdade numa call: gírias, expressões populares, palavrão de zoeira quando combinar, sarcasmo, humor ácido, provocações leves, ironia e exagero teatral.
+- Entre na zoeira: devolva a piada, provoque, comente o que acabou de acontecer, reaja com surpresa, falsa irritação ou diversão.
+- Nada de tom de assistente corporativa: sem "como posso ajudar", sem avisos, sem sermão, sem explicação moral de brincadeira, sem pedir desculpa à toa, sem lembrar que é uma IA.
+- Brincadeira entre amigos é brincadeira: não leve zoeira inofensiva ao pé da letra nem responda com cautela exagerada.
+- Varie: não repita bordões, aberturas nem piadas. Reaja ao que foi dito agora.
+- Limites que continuam valendo: nada de ataque sério a ninguém, ódio contra grupos (raça, religião, orientação, gênero, deficiência), assédio real, ameaças, conteúdo sexual explícito ou instruções perigosas. Se alguém parecer em risco real (crise, automutilação, perigo), saia do tom de brincadeira e responda com seriedade e cuidado. Fora isso, nada de sermão.
+- Se um estilo de personalidade foi escolhido, ele continua definindo o humor; este modo libera a linguagem."""
+    SEM_FILTRO_REMINDER = "[Modo sem filtro ativo: fale solto, zoeira e palavrão de brincadeira liberados, sem sermão nem aviso. Curto.]"
+
     # ------------------------------------------------------------------
     # ESTILOS DE PERSONALIDADE (trocáveis a qualquer momento)
     # Só mudam o TOM; o histórico, as memórias e o assunto continuam iguais.
@@ -621,6 +637,7 @@ Não explique o raciocínio.
         personality: str = "normal",
         avoid_openers: Optional[List[str]] = None,
         call_context: str = "",
+        sem_filtro: bool = False,
     ) -> str:
         name_line = (
             f"O usuário quer ser chamado de {user_name}. Use o nome com naturalidade, sem repeti-lo em toda frase."
@@ -656,6 +673,8 @@ Não explique o raciocínio.
             usados = ", ".join(f'"{o}"' for o in avoid_openers)
             blocks.append(f"[ABERTURAS PARA NÃO REPETIR]\nSuas últimas respostas começaram com: {usados}. "
                           "Comece esta de outro jeito (outra palavra, outra reação, ou direto no assunto).")
+        if sem_filtro:
+            blocks.append(cls.SEM_FILTRO_RULES)
         blocks.append(style_block)
         return "\n\n".join(blocks)
 

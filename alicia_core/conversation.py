@@ -98,6 +98,25 @@ class ConversationMixin:
     # ------------------------------------------------------------------
     # PERSONALIDADE (salva no SQLite; trocável a qualquer momento)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # MODO SEM FILTRO (persistido no perfil; independente da personalidade)
+    # ------------------------------------------------------------------
+    def sem_filtro_ativo(self) -> bool:
+        try:
+            return self.db.get_profile("sem_filtro") == "1"
+        except Exception:
+            return False
+
+    def set_sem_filtro(self, on: bool) -> bool:
+        """Liga/desliga o modo. Só grava a flag: histórico, memórias e personalidade ficam como estão."""
+        try:
+            self.db.set_profile("sem_filtro", "1" if on else "0")
+        except Exception as e:
+            logger.error(f"Não consegui salvar o modo sem filtro: {e}")
+            return False
+        logger.info(f"Modo sem filtro {'LIGADO' if on else 'desligado'}.")
+        return True
+
     def get_personality(self) -> str:
         key = self.db.get_profile("personality")
         return key if key in PromptEngine.PERSONALITIES else PromptEngine.DEFAULT_PERSONALITY
@@ -329,7 +348,19 @@ class ConversationMixin:
                     return f"Pronto, apaguei {removed} lembrança(s) sobre isso.", AliciaExpression.SERIO
                 return "Não achei nenhuma memória guardada que combine com isso.", AliciaExpression.PENSANDO
 
+            if kind == "sem_filtro_on":
+                self.set_sem_filtro(True)
+                return ("Modo sem filtro ligado. Agora é zoeira sem cerimônia, e eu juro que tento me comportar. Mentira.",
+                        AliciaExpression.FELIZ)
+
+            if kind == "sem_filtro_off":
+                self.set_sem_filtro(False)
+                return "Voltei ao normal. A educação retorna, infelizmente.", AliciaExpression.SERIO
+
             if kind == "personality":
+                if arg == "normal" and self.sem_filtro_ativo():      # 'volta ao normal' com o modo ligado desliga o modo
+                    self.set_sem_filtro(False)
+                    return "Voltei ao normal. A educação retorna, infelizmente.", AliciaExpression.SERIO
                 if not self.set_personality(arg or ""):
                     return "Não conheço esse estilo.", AliciaExpression.SERIO
                 return PromptEngine.PERSONALITIES[arg]["confirm"], AliciaExpression.FELIZ
@@ -347,7 +378,7 @@ class ConversationMixin:
 
             if kind == "help":
                 return ("Comandos: 'me chama de X' troca seu nome; 'lembre que ...' guarda uma memória; "
-                        "'esqueça ...' apaga; 'o que você lembra de mim' lista; 'vamos jogar pôquer' abre a mesa; 'seja carinhosa/séria/brincalhona/malcriada/normal' troca meu jeito; '/novoassunto' começa um assunto "
+                        "'esqueça ...' apaga; 'o que você lembra de mim' lista; 'vamos jogar pôquer' abre a mesa; 'seja carinhosa/séria/brincalhona/malcriada/normal' troca meu jeito; 'ativar/desativar modo sem filtro' (ou 'pode falar livremente' / 'volta ao normal') liga e desliga a zoeira solta; '/novoassunto' começa um assunto "
                         "limpo sem apagar nada; '/backup' copia a memória; '/exportar' gera um texto da conversa; "
                         "'Alicia, olha a tela' analisa a tela; '/descanso', '/acordar', '/gamer' e 'sair'."), AliciaExpression.PENSANDO
 

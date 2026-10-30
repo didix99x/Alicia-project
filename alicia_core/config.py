@@ -34,6 +34,11 @@ class SystemConfig:
         self.brain_max_sentences: int = 6
         self.brain_max_chars: int = 800
         self.log_level: str = "INFO"
+        # MODO SEM FILTRO (conversa descontraída): parâmetros próprios; o modo em si fica no banco (perfil 'sem_filtro')
+        # e, ao desligar, os brain_* acima voltam a valer sem nenhuma outra alteração.
+        self.sem_filtro_temperature: float = 0.95
+        self.sem_filtro_top_p: float = 0.95
+        self.sem_filtro_max_tokens: int = 450
         self.poker_voice: bool = True            # a Alicia fala as reações do pôquer (se a voz estiver ligada)
         self.avatar_relax_seconds: float = 8.0   # após uma emoção, volta ao rosto neutro (que respira e pisca)
         
