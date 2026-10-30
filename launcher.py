@@ -186,7 +186,7 @@ def install_dependencies(fresh_venv: bool, force: bool):
     if failed_optional:
         say("\n[AVISO] Não consegui instalar: " + ", ".join(failed_optional))
         say("        A Alicia funciona sem isso; só os recursos ligados a essas bibliotecas ficam desligados")
-        say("        (pygame/edge-tts = voz; SpeechRecognition/sounddevice = microfone; mss = captura rápida; psutil = modo gamer).")
+        say("        (pygame/edge-tts = voz; SpeechRecognition/sounddevice = microfone; soundcard/numpy = modo call; mss = captura rápida; psutil = modo gamer).")
         say("        Para tentar de novo mais tarde: Iniciar_Alicia.bat --reinstall\n")
 
     MARKER_HASH.write_text(fingerprint)

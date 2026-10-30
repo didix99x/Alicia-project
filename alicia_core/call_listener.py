@@ -16,7 +16,7 @@ import time
 from typing import TYPE_CHECKING, Optional, Tuple
 
 from . import audio_output
-from .call_audio import HAS_PACTL, HAS_PAREC, ParecSource
+from .call_audio import CAPTURE_HINT, HAS_CAPTURE, HAS_PACTL, IS_WINDOWS, ParecSource, open_source
 from .call_context import has_wake_word
 from .deps import HAS_SPEECH, sr
 from .logging_setup import logger
@@ -35,7 +35,7 @@ class CallListener:
 
     def __init__(self, core: "AliciaAssistantCore", virtual: Optional[VirtualAudio] = None):
         self.core = core
-        self.enabled = bool(HAS_SPEECH and HAS_PAREC)
+        self.enabled = bool(HAS_SPEECH and HAS_CAPTURE)
         cfg = core.config
         self.virtual = virtual or VirtualAudio(
             mic_source=getattr(cfg, "call_mic_source", None),
@@ -57,7 +57,7 @@ class CallListener:
         if self.active:
             return True, "O modo call já está ligado."
         if not self.enabled:
-            return False, "Modo call indisponível: precisa do `parec` (pacote libpulse) e do SpeechRecognition."
+            return False, f"Modo call indisponível: {CAPTURE_HINT} e do SpeechRecognition."
         device = self._cfg("call_source", None)
         self._isolated = False
         if self._cfg("call_virtual_audio", True) and HAS_PACTL:
@@ -68,7 +68,9 @@ class CallListener:
                 audio_output.set_output_sink(SINK_VOICE)
             except Exception as e:
                 logger.warning(f"Áudio virtual da call não foi criado ({e}); usando o áudio geral do sistema.")
-        if not device:
+        if not device and IS_WINDOWS:
+            device = None          # o LoopbackSource usa o alto-falante padrão
+        elif not device:
             try:
                 device = run_pactl(["get-default-sink"]).strip() + ".monitor"
             except PactlError as e:
@@ -95,7 +97,7 @@ class CallListener:
                    "(Alicia_Mic) para seu amigo ouvir você e a Alicia. A saída do Discord vai sozinha para o canal "
                    "dela (você continua ouvindo).")
         else:
-            msg = (f"Modo call ligado (ouvindo '{device}'). Sem áudio virtual: seu amigo NÃO ouve a Alicia, "
+            msg = (f"Modo call ligado (ouvindo '{device or 'o alto-falante padrão'}'). Sem áudio virtual: seu amigo NÃO ouve a Alicia, "
                    "e ela pausa a escuta enquanto fala.")
         logger.info(f"📞 {msg}")
         return True, msg
@@ -133,9 +135,9 @@ class CallListener:
                                          < float(self._cfg("mic_post_speech_cooldown", 1.0)))
 
     def _capture_loop(self, gen: int):
-        logger.info(f"📞 Ouvindo a call em '{self.device}'...")
+        logger.info(f"📞 Ouvindo a call em '{self.device or 'alto-falante padrão'}'...")
         try:
-            with ParecSource(self.device) as source:
+            with open_source(self.device) as source:
                 seg = UtteranceSegmenter(
                     source.SAMPLE_RATE, source.CHUNK,
                     floor=float(self._cfg("call_energy_floor", 150)),
@@ -149,7 +151,7 @@ class CallListener:
                         continue
                     if not chunk:
                         if self._alive(gen):
-                            raise RuntimeError("o parec encerrou (o destino de áudio sumiu?)")
+                            raise RuntimeError("a captura encerrou (o destino de áudio sumiu?)")
                         break
                     # Sem o canal isolado, o que a Alicia fala volta pelo monitor: ignora enquanto ela fala.
                     if not self._isolated and self._alicia_is_speaking():

@@ -111,9 +111,9 @@ Ela **só enxerga o que uma pessoa honesta enxergaria** (as cartas dela, as apos
 
 **Conversa na mesa:** com a mesa aberta, tudo o que você disser (voz ou teclado) é respondido só sobre a partida, no tom da personalidade escolhida; as reações às jogadas também são geradas na hora a partir do que realmente aconteceu (se a API demorar ou falhar, entra a fala pronta de sempre). Enquanto a mesa está aberta, a conversa normal, a análise de tela e o modo gamer ficam fora, e nada do que é dito ali entra na memória da conversa normal. Só os comandos de personalidade continuam valendo.
 
-## 📞 Modo call (Discord): a Alicia ouve a conversa e participa — Linux (PipeWire/PulseAudio)
+## 📞 Modo call (Discord): a Alicia ouve a conversa e participa — Linux (PipeWire/PulseAudio) e Windows
 Ela escuta o áudio que **sai do computador** (a voz dos seus amigos), guarda os últimos ~10 min como contexto e **só fala quando alguém diz "Alicia"** (você ou seu amigo).
-Precisa de `parec` e `pactl` (pacote `libpulse`/`pipewire-pulse`), do SpeechRecognition e de internet (a transcrição usa o Google, como o microfone: **avise seus amigos** de que o áudio da call é transcrito).
+**Linux:** precisa de `parec` e `pactl` (pacote `libpulse`/`pipewire-pulse`). **Windows:** usa `soundcard` + `numpy` (loopback do alto-falante padrão; sem áudio virtual, então seu amigo não ouve a Alicia e ela pausa a escuta enquanto fala). Em ambos precisa do SpeechRecognition e de internet (a transcrição usa o Google, como o microfone: **avise seus amigos** de que o áudio da call é transcrito).
 
 **Ligar/desligar:** digite `/call` na janela do terminal. `/resumo` faz ela resumir a conversa da call.
 Ao ligar, ela cria 3 canais virtuais (e remove tudo ao desligar ou sair):
