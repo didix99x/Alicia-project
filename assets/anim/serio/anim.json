@@ -1,0 +1,32 @@
+{
+  "expression": "serio",
+  "size": [
+    500,
+    461
+  ],
+  "idle": {
+    "frames": 24,
+    "fps": 12
+  },
+  "blink": {
+    "frames": 4,
+    "sequence": [
+      [
+        2,
+        0.05
+      ],
+      [
+        3,
+        0.08
+      ],
+      [
+        4,
+        0.06
+      ]
+    ]
+  },
+  "talk": {
+    "frames": 4,
+    "fps": 8
+  }
+}

@@ -1,20 +1,138 @@
-para conseguir rodar a ia voce presisa seguir esse passo 
+# Alicia — assistente pessoal (cérebro via API NVIDIA)
 
-1-baixar  o ollhama
-2-baixar o modelo de ia llama3.1   ( abra o cmd e use esse comando -- ollama pull llama3.1 -- )
+## Primeira vez (Windows 10/11)
+1. **Crie uma chave NOVA** em https://build.nvidia.com (Settings → API Keys). A chave que foi colada
+   numa conversa deve ser considerada exposta: **revogue-a** no painel.
+2. Dê dois cliques em **`Iniciar_Alicia.bat`**. Ele:
+   - procura o Python e, **se não achar, instala o Python 3.12 sozinho** (winget ou download oficial do python.org);
+   - cria o ambiente `.venv`, instala as bibliotecas essenciais e tenta as opcionais uma a uma;
+   - cria o `.env` e pede a chave (a digitação fica oculta);
+   - valida a chave e o modelo na API da NVIDIA e roda o diagnóstico;
+   - abre a Alicia e **pergunta como você quer ser chamado** (salvo para sempre no banco).
+   Logo depois do nome ela pergunta a **personalidade** (1 Normal, 2 Brincalhona, 3 Séria, 4 Malcriada, 5 Carinhosa).
+3. Converse **na janela preta** (teclado) ou pelo microfone. O avatar é só a parte visual; não feche a janela preta.
 
-Para instalar todas as bibliotecas Python utilizadas no projeto (gerenciamento de voz, interface gráfica, imagens e requisições), execute no terminal:
+O iniciador também **baixa o que faltar** em qualquer execução (bibliotecas essenciais e opcionais). A visão (Ollama + modelo, vários GB) só é baixada se você responder **s** à pergunta — ou depois com `Iniciar_Alicia.bat --vision`.
 
-pip install pyttsx3 — Responsável pelo motor de síntese de voz (TTS) da Alicia.
+## Próximas vezes
+Dois cliques em `Iniciar_Alicia.bat`. Só instala o que faltar, não pede nome nem chave de novo.
 
-pip install SpeechRecognition — Gerencia a captura e reconhecimento do microfone (STT).
+## Chave e configurações (`.env`)
+```
+NVIDIA_API_KEY=nvapi-...        # nunca compartilhe; o .env é ignorado pelo Git
+NVIDIA_MODEL=nvidia/nemotron-3-ultra-550b-a55b
+NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+```
+Trocar a chave: `Iniciar_Alicia.bat --set-key`. Se o modelo não existir na sua conta, o iniciador lista alternativas.
+Outros ajustes (timeouts, tamanho do histórico, resposta máxima, voz, microfone, visão) ficam em `config.json`.
 
-pip install PyQt6 — Utilizado para renderizar a interface gráfica do Desktop Pet.
+## Comandos na conversa
+| Diga | Efeito |
+|---|---|
+| `me chama de Ana` / `meu nome é Ana` / `/nome Ana` | troca o nome (salvo no banco) |
+| `lembre que meu projeto atual é X` | guarda uma memória (com data e origem) |
+| `esqueça X` | apaga memórias que combinem |
+| `o que você lembra de mim?` / `/memorias` | lista o que está guardado |
+| `seja carinhosa` / `fica séria` / `/personalidade malcriada` / `/personalidade` | troca o estilo na hora (também: botão direito no avatar → 🎭 Personalidade) |
+| `/novoassunto` | começa um assunto limpo (nada é apagado; ainda dá para ela recordar o antigo) |
+| `/backup` / `/exportar` | copia a memória / gera um .txt da conversa e das memórias (`backups\`, `exportacoes\`) |
+| `/ajuda` | lista os comandos |
+| `/descanso`, `/acordar`, `/gamer`, `sair` | modos e saída (como antes) |
+| `Alicia, olha a tela` | análise de tela (exige Ollama) |
 
-pip install Pillow — Manipulação e captura de prints da tela para o recurso de visão.
+## Personalidades
+Normal (o jeito original), Brincalhona, Séria, Malcriada (de brincadeira, nunca ofende de verdade) e Carinhosa. A escolha fica salva no banco e pode mudar a qualquer momento: só o *tom* muda, o histórico, as memórias e o assunto em andamento continuam iguais.
 
-pip install requests — Realiza a comunicação HTTP com a API local do Ollama.
+## Memória (3 camadas)
+- **Histórico** (`conversation_history`): cada fala, uma única vez, com data, sessão e turno.
+- **Memória persistente** (`memories`, `user_profile`): só o que você pediu para guardar + o nome. Nada inferido.
+- **Contexto do turno**: últimas N mensagens (config `brain_history_messages`) + memórias e trechos antigos *relevantes*.
+Observações de tela ficam separadas e nunca entram no chat. Erros da API nunca são gravados como resposta da Alicia.
+Seus dados antigos são preservados (migração só adiciona colunas).
 
-pip install pyaudio — Biblioteca de suporte essencial para o funcionamento do microfone.
+## Backup
+A cada início (no máximo 1x por dia) a Alicia copia `alicia_memory.db` para `backups\`, mantendo as 5 últimas. Para restaurar, feche a Alicia e substitua `alicia_memory.db` por uma dessas cópias.
 
-eu acho q isso e tudo posso ajudar ate aqui
+## Teste completo (use isto quando algo não funcionar)
+`Teste_Completo_Alicia.bat` roda de verdade, um por um: ambiente, módulos, banco, API do modelo, conversa de ponta a ponta,
+comandos "Alicia, olha/ver/olhar", captura de tela, visão, voz (você deve ouvir "Teste de voz da Alicia"), microfone
+(fale quando pedir) e interface. Grava **`relatorio_alicia.txt`** (sem a chave e sem o conteúdo da sua tela): envie esse arquivo.
+Variações: `Teste_Completo_Alicia.bat --sem-audio` (não toca nem grava) e `--rapido` (pula voz, microfone e visão).
+
+## Visão (olhar a tela)
+"Alicia, olha" / "ver" / "olhar" (também "Alícia", com acento) inicia a análise na hora, mesmo com a observação espontânea desligada.
+Caminhos, nesta ordem: **Ollama local** (se instalado) → **modelo de visão da API da NVIDIA**, descoberto sozinho com um teste real.
+Comentários espontâneos e o modo gamer só usam o Ollama local (para não gastar a cota da API).
+
+## Logs e diagnóstico
+- Logs: `logs\alicia_system.log` (chaves são mascaradas). Nível: `ALICIA_LOG_LEVEL=DEBUG` no `.env`.
+- Diagnóstico completo: `Diagnostico_Alicia.bat` (Python, bibliotecas, banco, chave sem revelá-la, API, modelo, interface, áudio, Ollama).
+- Forçar reinstalação: `Iniciar_Alicia.bat --reinstall`.
+
+## Testes
+`python -m unittest discover -s tests -t .` (usa um servidor local falso; não prova a API real — para isso use o diagnóstico).
+
+## Captura de voz (como funciona e como ajustar)
+O microfone é lido **sem parar**, e a Alicia guarda os 1,6 s de áudio anteriores ao momento em que detecta a fala, então o começo
+da frase não é cortado. O reconhecimento roda em outra thread, então uma frase nova nunca se perde enquanto a anterior é processada.
+Ajustes em `config.json` (feche a Alicia antes de editar):
+- `mic_preroll_seconds` (1.6): áudio guardado antes da fala. Se ainda cortar o começo, suba para 2.2.
+- `mic_end_silence` (1.0): silêncio que encerra a frase. Suba para 1.4 se ela te interromper no meio.
+- `mic_post_speech_cooldown` (1.0): pausa depois que a Alicia fala. Suba se o microfone captar a voz dela.
+- `mic_start_multiplier` (2.5) e `mic_energy_floor` (250): sensibilidade. Se captar ruído demais, suba; se não pegar sua voz baixa, desça.
+
+## "Só ouve quando eu clico na janela"
+O Windows 10/11 põe programas sem foco em **modo de economia** (EcoQoS): as threads do microfone são atendidas devagar, o áudio
+transborda e a Alicia só "acorda" quando você clica. A partir desta versão ela **desliga esse modo para si mesma** ao iniciar
+(também desliga o QuickEdit do console, que pausava o programa quando você clicava nele). Para conferir na sua máquina:
+`Teste_Completo_Alicia.bat --foco` mede a leitura do microfone com a janela em foco e em segundo plano.
+Se ainda houver atraso, abra o **Gerenciador de Tarefas → Detalhes**, clique com o botão direito em `python.exe` (e `WindowsTerminal.exe`) e
+desmarque **Modo de eficiência**; em *Configurações → Sistema → Energia*, use o modo **Melhor desempenho**.
+
+## Voz e jeito de falar (menos robótica)
+- A persona agora pede **fala de gente**: português do dia a dia ("tá", "né", "pra"), frases curtas, reação antes da resposta, opinião própria, sem "Claro!/Entendido./Posso ajudar em mais algo?", sem listas em conversa. As últimas aberturas que ela usou ("Ah,", "Hum,") entram no prompt como "não repetir".
+- A **voz** muda ritmo, tom e volume conforme a emoção (feliz mais ligeira, pensativa mais lenta, brava mais firme, surpresa mais aguda), com uma pequena variação a cada frase. Emojis, links, markdown e travessões são tratados antes de falar. Para voltar à voz neutra: `"voice_expressive": false` no `config.json`.
+- Outra voz do Edge: `"voice_name": "pt-BR-ThalitaMultilingualNeural"` no `config.json` (se não funcionar, ela volta sozinha para a Francisca).
+
+## 🃏 Minigame de pôquer (Five-Card Draw contra a Alicia)
+**Abrir:** botão direito no avatar → **🃏 Jogar pôquer com a Alicia**, ou digite/diga *"vamos jogar pôquer"*, *"bora jogar poker"* ou `/poker`.
+O avatar flutuante some enquanto você joga e volta quando você clica em **Sair do jogo** (ou fecha a janela). A Alicia continua funcionando normalmente (conversa por teclado e voz, comandos); só os comentários espontâneos sobre a tela ficam pausados durante a partida.
+
+**Regras (resumo):** baralho de 52 cartas, 5 cartas para cada um, 1000 fichas cada, ante de 10. Apostas → troca (0 a 5 cartas, **uma vez** por mão) → apostas → showdown.
+Aposta mínima 20; aumento mínimo = a última aposta; no máximo 3 aumentos por rodada. Passar só sem aposta aberta; desistir só diante de uma aposta.
+Quem não é o dealer age primeiro; o botão alterna a cada mão. Se alguém não consegue pagar tudo (all-in), a parte da aposta que o outro não igualou **volta ao dono** antes do showdown.
+Empate divide o pote. A partida acaba quando alguém fica sem fichas; **Nova partida** recomeça com 1000 para cada.
+
+**Controles:** clique nas suas cartas na fase de troca para marcar as que quer **TROCAR** (ficam destacadas), depois *Confirmar troca* (ou *Ficar com as cinco*). Apostar/Aumentar usa o valor da caixa numérica
+e os atalhos *Mín*, *½ pote*, *Pote*; *All-in* põe tudo. Os botões ilegais ficam desativados. *Próxima mão* aparece ao fim de cada mão (serve de pausa).
+
+**A Alicia:** joga por cálculo local (não depende do modelo de linguagem nem de internet): estima a força da mão por simulação, escolhe as trocas pelo valor esperado, considera pote, tamanho das apostas, fichas restantes e o seu estilo (quanto você desiste ou aumenta), e blefa de vez em quando.
+Ela **só enxerga o que uma pessoa honesta enxergaria** (as cartas dela, as apostas e quantas cartas você trocou). As falas e expressões vêm de eventos reais e mudam com a personalidade escolhida; ela fala em voz alta se a voz estiver ligada (`poker_voice` no `config.json`) e sempre mostra o balão.
+
+**Conversa na mesa:** com a mesa aberta, tudo o que você disser (voz ou teclado) é respondido só sobre a partida, no tom da personalidade escolhida; as reações às jogadas também são geradas na hora a partir do que realmente aconteceu (se a API demorar ou falhar, entra a fala pronta de sempre). Enquanto a mesa está aberta, a conversa normal, a análise de tela e o modo gamer ficam fora, e nada do que é dito ali entra na memória da conversa normal. Só os comandos de personalidade continuam valendo.
+
+## Avatar animado (uma animação por emoção)
+Cada emoção tem a sua pasta em `assets\anim\<emoção>\` (`serio`, `feliz`, `bravo`, `pensando`, `surpresa`) com:
+`idle_NN` (respiração e cabelo, em loop), `blink_N` (piscar), `talk_N` (formas da boca) e o `anim.json`.
+
+Em **qualquer emoção** ela respira, pisca em intervalos irregulares (2,5 a 6 s, às vezes duas vezes) e mexe a boca **enquanto o áudio toca**
+(se a voz estiver desligada, a boca mexe por um tempo proporcional ao tamanho da resposta). A emoção aparece na hora e,
+depois de ~8 s (`avatar_relax_seconds` no `config.json`), ela relaxa para o rosto neutro (**serio**). O mesmo vale para a mesa de pôquer.
+Emoção sem pasta (ou com algum quadro faltando) aparece como imagem estática, e as demais continuam animadas.
+O layout antigo (`assets\anim\anim.json` solto, só da *serio*) ainda funciona.
+
+**Trocar/refazer as animações:** coloque as folhas do ChatGPT (fundo verde, 4 colunas x 5 linhas: 12 respiração + 4 piscar + 4 boca) em uma pasta
+(`serio.png`, `feliz.png`, `brava.png`, `pensando.png`, `surpresa.png`) e rode
+`python tools\montar_animacoes.py --folhas <pasta> --previas previas` (precisa de `pip install numpy scipy Pillow`).
+Ele recorta, tira o fundo verde, alinha os quadros, completa o corpo das linhas cortadas e grava tudo em `assets\anim\<emoção>\`.
+`tools\gerar_avatar.py` é a ferramenta antiga (animação única da *serio*).
+
+## Avatar
+As imagens ficam em `assets\` (`feliz`, `serio`, `surpresa`, `pensando`, `bravo`, mais `feliz_2` e `feliz_3`, que alternam sozinhas quando ela está feliz). Para trocar o visual, substitua os PNGs mantendo os nomes (fundo transparente).
+
+## Voz, visão e Ollama
+Voz de saída: edge-tts gera a fala e o próprio Windows toca (sem pygame). Microfone: SpeechRecognition + **sounddevice** (traz o PortAudio junto; funciona em qualquer Python no Windows, sem PyAudio). Escolha o microfone no botão direito do avatar. Se o Windows bloquear, vá em *Configurações → Privacidade → Microfone* e permita o acesso. Se faltar alguma biblioteca, esse recurso fica desligado e o resto funciona.
+O **Ollama agora serve só à visão/modo gamer** (opcional). A conversa usa exclusivamente a NVIDIA.
+
+## Gerar .exe (opcional, não testado)
+Só depois de tudo funcionar: `.venv\Scripts\python -m pip install pyinstaller` e empacotar `main.py`.

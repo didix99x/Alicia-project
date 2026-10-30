@@ -1,0 +1,7 @@
+# Dependências ESSENCIAIS da Alicia (o iniciador instala isto primeiro).
+# Usamos limites mínimos (>=) em vez de versões fixas: são versões que existem
+# e atendem ao que o código usa. Se quiser congelar versões depois que tudo
+# estiver funcionando na sua máquina, rode:  .venv\Scripts\python -m pip freeze > requirements.lock.txt
+requests>=2.31
+Pillow>=10.0
+PyQt6>=6.5

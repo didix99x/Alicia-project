@@ -1,0 +1,7 @@
+# Dependências OPCIONAIS. O iniciador instala/atualiza uma por uma; se alguma falhar,
+# só o recurso correspondente fica desligado e a Alicia continua funcionando.
+edge-tts>=6.1.9           # voz: síntese de fala (o Windows toca o áudio; não precisa de pygame)
+SpeechRecognition>=3.10   # microfone: reconhecimento de fala
+sounddevice>=0.4.6        # microfone: captura (inclui o PortAudio; funciona em qualquer Python no Windows)
+mss>=9.0                  # visão: captura de tela rápida (há alternativa com Pillow)
+psutil>=5.9               # modo gamer: detecção de processos
