@@ -82,6 +82,19 @@ class SystemConfig:
         self.mic_post_speech_cooldown: float = 1.0 # pausa após a Alicia falar (evita ouvir o eco dela)
         self.mic_start_multiplier: float = 2.5     # limiar = ruído de fundo x isto
 
+        # ------------------------------------------------------------------
+        # MODO CALL (ouvir o áudio do PC numa call do Discord; Linux/PipeWire)
+        # ------------------------------------------------------------------
+        self.call_virtual_audio: bool = True       # cria os canais virtuais (o amigo ouve a Alicia; só o Discord é escutado)
+        self.call_source: Optional[str] = None     # fonte a escutar; None = automática (canal do Discord ou áudio geral)
+        self.call_mic_source: Optional[str] = None # seu microfone real para o mix; None = o padrão do sistema
+        self.call_discord_apps: list = ["discord", "vesktop", "webcord", "armcord", "legcord", "equibop"]
+        self.call_context_seconds: float = 600.0   # quanto tempo de conversa ela lembra
+        self.call_context_max_items: int = 60
+        self.call_reply_cooldown: float = 6.0      # intervalo mínimo entre respostas na call
+        self.call_end_silence: float = 0.9         # silêncio que encerra a fala do amigo
+        self.call_energy_floor: int = 150
+
         # Modo Gamer: tolerância e desempenho.
         self.gamer_auto_exit_grace: float = 25.0
         self.gamer_detection_interval: float = 1.5

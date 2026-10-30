@@ -111,6 +111,23 @@ Ela **só enxerga o que uma pessoa honesta enxergaria** (as cartas dela, as apos
 
 **Conversa na mesa:** com a mesa aberta, tudo o que você disser (voz ou teclado) é respondido só sobre a partida, no tom da personalidade escolhida; as reações às jogadas também são geradas na hora a partir do que realmente aconteceu (se a API demorar ou falhar, entra a fala pronta de sempre). Enquanto a mesa está aberta, a conversa normal, a análise de tela e o modo gamer ficam fora, e nada do que é dito ali entra na memória da conversa normal. Só os comandos de personalidade continuam valendo.
 
+## 📞 Modo call (Discord): a Alicia ouve a conversa e participa — Linux (PipeWire/PulseAudio)
+Ela escuta o áudio que **sai do computador** (a voz dos seus amigos), guarda os últimos ~10 min como contexto e **só fala quando alguém diz "Alicia"** (você ou seu amigo).
+Precisa de `parec` e `pactl` (pacote `libpulse`/`pipewire-pulse`), do SpeechRecognition e de internet (a transcrição usa o Google, como o microfone: **avise seus amigos** de que o áudio da call é transcrito).
+
+**Ligar/desligar:** digite `/call` na janela do terminal. `/resumo` faz ela resumir a conversa da call.
+Ao ligar, ela cria 3 canais virtuais (e remove tudo ao desligar ou sair):
+- `alicia_discord`: a saída do Discord (`discord`, `vesktop`, `equibop`...) é movida para cá sozinha; você continua ouvindo normalmente. É só isto que ela escuta, então música, jogo e a própria voz dela **não** entram.
+- `alicia_voz`: por onde a voz dela sai (você ouve, e seu amigo também).
+- `alicia_mix`/**`alicia_mic`**: mistura **seu microfone + a voz da Alicia**.
+
+**Passo manual (uma vez por sessão):** no Discord → Configurações de Voz → **Dispositivo de entrada = `Alicia_Mic`**. Assim seu amigo ouve você e a Alicia. Sem isso ela escuta a call, mas o amigo não a ouve.
+Sem `pactl`, ou com `"call_virtual_audio": false`, ela escuta o áudio geral do sistema e pausa a escuta enquanto fala (amigo não a ouve).
+
+**Segurança:** o que o *amigo* fala é só conversa para ela: não troca seu nome, não grava/apaga memórias, não muda a personalidade e não faz ela olhar a sua tela.
+**Limites:** todos os falantes remotos aparecem como "Amigo" (sem separar vozes); o contexto da call fica só em memória (não vai para o banco); latência típica de 3–6 s por resposta.
+**Ajustes** (`config.json`, feche a Alicia antes): `call_discord_apps` (Discord no navegador: `["firefox"]`, mas isso captura tudo do navegador), `call_mic_source` (microfone real do mix), `call_context_seconds`, `call_reply_cooldown`, `call_end_silence`, `call_energy_floor` (suba se ela captar ruído como fala).
+
 ## Avatar animado (uma animação por emoção)
 Cada emoção tem a sua pasta em `assets\anim\<emoção>\` (`serio`, `feliz`, `bravo`, `pensando`, `surpresa`) com:
 `idle_NN` (respiração e cabelo, em loop), `blink_N` (piscar), `talk_N` (formas da boca) e o `anim.json`.

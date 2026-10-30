@@ -1218,7 +1218,8 @@ class TestVoiceEngineNeverStopsListening(unittest.TestCase):
                                     mic_recalibration_interval_gamer=9999, mic_fails_before_recalibration=5,
                                     save=lambda: None)
         core = types.SimpleNamespace(is_running=True, config=cfg, tts=tts, modo_gamer=False, modo_descanso=False,
-                                     answered=[], parse_expression_tags=lambda r: (r, Expr()))
+                                     answered=[], parse_expression_tags=lambda r: (r, Expr()),
+                                     call_listener=types.SimpleNamespace(active=False))
         core.interact = lambda text, source="voice": core.answered.append(text) or "[FELIZ] " + text
 
         state = {"i": 0}

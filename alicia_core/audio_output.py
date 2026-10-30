@@ -11,6 +11,7 @@ Outros sistemas: usa o pygame, se estiver instalado.
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -81,3 +82,22 @@ def play_mp3(path: str):
 
 def stop_playback():
     _stop_flag.set()
+
+
+def set_output_sink(sink: str | None) -> bool:
+    """Linux/pygame: faz a voz sair por um destino específico do PulseAudio/PipeWire (None = padrão do sistema).
+    O libpulse lê PULSE_SINK quando o SDL abre o dispositivo, então reabrimos o mixer."""
+    if AUDIO_BACKEND != "pygame":
+        return False
+    with _lock:
+        try:
+            pygame.mixer.quit()
+            if sink:
+                os.environ["PULSE_SINK"] = sink
+            else:
+                os.environ.pop("PULSE_SINK", None)
+            pygame.mixer.init()
+            return True
+        except Exception as e:
+            logger.warning(f"Não consegui trocar o destino da voz para '{sink}': {e}")
+            return False

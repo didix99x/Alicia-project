@@ -155,7 +155,7 @@ class ConversationMixin:
             return ""
 
         if not self.chat_ready.is_set():
-            return "" if source == "voice" else "[SERIO] Calma, ainda estou me apresentando."
+            return "" if source in ("voice", "call_friend") else "[SERIO] Calma, ainda estou me apresentando."
 
         now = time.monotonic()
         digest = _hash(text)
@@ -168,7 +168,7 @@ class ConversationMixin:
         if not self._turn_lock.acquire(timeout=0.5):
             self._forget_last_input()
             logger.info(f"Mensagem ({source}) recusada: outro turno em andamento.")
-            return "" if source == "voice" else "[SERIO] Calma, ainda estou respondendo à mensagem anterior."
+            return "" if source in ("voice", "call_friend") else "[SERIO] Calma, ainda estou respondendo à mensagem anterior."
         try:
             return self._interact_impl(text, source)
         finally:
@@ -218,22 +218,25 @@ class ConversationMixin:
         self.total_interactions += 1
         meta = {"turn": self.total_interactions}
 
+        # Fala de OUTRA pessoa na call: só conversa. Nunca muda nome/memória/personalidade nem captura a tela.
+        remote = source == "call_friend"
+
         # ---- 1. nome e memória (determinístico) ----
-        cmd = parse_command(text)
+        cmd = None if remote else parse_command(text)
         if cmd:
             answer, expr = self._run_memory_command(*cmd)
             meta["event"] = f"command_{cmd[0]}"
             return self._finish(text, answer, expr, turn_id, source, meta)
 
         # ---- 2. comandos sociais já existentes ----
-        social = self._social_reply(text)
+        social = None if remote else self._social_reply(text)
         if social:
             answer, expr, kind, target = social
             meta.update({"event": "social_command", "command_type": kind, "target_name": target})
             return self._finish(text, answer, expr, turn_id, source, meta)
 
         # ---- 3. pedido explícito para olhar a tela ----
-        if self._is_direct_visual_command(text):   # pedido explícito vale mesmo com a observação espontânea desligada
+        if not remote and self._is_direct_visual_command(text):   # pedido explícito vale mesmo com a observação espontânea desligada
             answer, expr, ok = self.analyze_screen_now(text)
             if not answer:
                 return ""
@@ -246,7 +249,9 @@ class ConversationMixin:
         # ---- 4. cérebro (API NVIDIA) ----
         name = self.db.get_user_name() or ""
         try:
-            raw = self.brain.reply(text, name, self.last_visual_context)
+            in_call = self.call_listener.active
+            raw = self.brain.reply(text, name, self.last_visual_context,
+                                   call_context=self.call_context.format_for_prompt() if in_call else "")
         except BrainError as e:
             logger.error(f"Cérebro indisponível neste turno: {e.kind}")
             self._forget_last_input()  # permite tentar de novo com a mesma frase
@@ -259,9 +264,10 @@ class ConversationMixin:
         # remove "falas" inventadas do usuário no fim da resposta
         raw = re.split(r"\n\s*(?:usu[aá]rio|user|voc[eê]|" + re.escape(name or "§§") + r")\s*:", raw, maxsplit=1, flags=re.IGNORECASE)[0]
         answer, expr = self.parse_expression_tags(raw)
-        answer = self._limit_response_length(
-            answer, max_sentences=int(self.config.brain_max_sentences), max_chars=int(self.config.brain_max_chars)
-        )
+        max_sentences, max_chars = int(self.config.brain_max_sentences), int(self.config.brain_max_chars)
+        if in_call:                      # falando numa call: resposta curta
+            max_sentences, max_chars = min(max_sentences, 3), min(max_chars, 320)
+        answer = self._limit_response_length(answer, max_sentences=max_sentences, max_chars=max_chars)
         if not answer:
             logger.error("Resposta do modelo vazia após o tratamento.")
             self._forget_last_input()

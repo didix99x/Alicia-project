@@ -28,6 +28,7 @@ from collections import deque
 from typing import TYPE_CHECKING, List, Optional
 
 from .audio_input import open_microphone
+from .call_context import has_wake_word
 from .deps import sr, HAS_SPEECH, HAS_MIC, MIC_ERROR
 from .logging_setup import logger
 from .winperf import boost_current_thread
@@ -365,6 +366,13 @@ class VoiceInputEngine:
         label = (self.core.db.get_user_name() if hasattr(self.core, "db") else None) or "Você"
         print(f"\n🎙️ {label} (Voz): {text}")
 
+        in_call = self.core.call_listener.active
+        if in_call:
+            # Seu microfone também conta para o contexto; na call ela só responde se você a chamar pelo nome.
+            self.core.call_context.add(label, text)
+            if not has_wake_word(text):
+                return
+
         if self.core.modo_descanso:
             palavras = ["acordar", "acorda", "despertar", "voltar", "alicia acorda"]
             if any(p in text.lower() for p in palavras):
@@ -377,5 +385,7 @@ class VoiceInputEngine:
         if not response:
             return
         clean_response, expr = self.core.parse_expression_tags(response)
+        if in_call:
+            self.core.call_context.add("Alicia", clean_response)
         print(f"🤖 Alicia [{expr.value.upper()}]: {clean_response}")
         self.core.tts.speak(clean_response, expr)

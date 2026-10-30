@@ -28,6 +28,8 @@ from .ollama_client import OllamaClient
 from .tts import TextToSpeechEngine
 from .prompts import PromptEngine
 from .voice_input import VoiceInputEngine
+from .call_context import CallContext
+from .call_listener import CallListener
 from .enums import AliciaExpression
 from .models import HardwareSnapshot
 from .logging_setup import logger
@@ -99,6 +101,11 @@ class AliciaAssistantCore(ConversationMixin):
             expressive=bool(getattr(self.config, "voice_expressive", True)),
         )
         self.voice_input = VoiceInputEngine(self)
+        self.call_context = CallContext(
+            max_age=float(getattr(self.config, "call_context_seconds", 600.0)),
+            max_items=int(getattr(self.config, "call_context_max_items", 60)),
+        )
+        self.call_listener = CallListener(self)
 
         self.is_running = False
         self.screen_watch_enabled = True
@@ -676,6 +683,49 @@ class AliciaAssistantCore(ConversationMixin):
             daemon=True,
             name="AliciaTTS"
         ).start()
+
+    # ==========================================================================
+    # MODO CALL (ouvir o áudio do PC numa call do Discord)
+    # ==========================================================================
+
+    def entrar_modo_call(self) -> str:
+        ok, msg = self.call_listener.start()
+        if ok:
+            self.call_context.clear()
+        return msg
+
+    def sair_modo_call(self) -> str:
+        if not self.call_listener.active:
+            return "O modo call não estava ligado."
+        self.call_listener.stop()
+        return "Modo call desligado. Áudio virtual removido."
+
+    def responder_na_call(self, texto: str, quem: str = "Amigo"):
+        """Alguém da call chamou a Alicia: responde (por voz, que sai também para a call)."""
+        if self.modo_descanso or not self.is_running:
+            return
+        try:
+            response = self.interact(f"({quem} diz na call): {texto}", source="call_friend")
+            if not response:
+                return
+            clean, expr = self.parse_expression_tags(response)
+            print(f"🤖 Alicia [{expr.value.upper()}]: {clean}")
+            self.call_context.add("Alicia", clean)
+            self.tts.speak(clean, expr)
+        except Exception as e:
+            logger.error(f"Erro ao responder na call: {type(e).__name__}: {e}")
+
+    def resumir_call(self) -> str:
+        ctx = self.call_context.format_for_prompt(6000)
+        if not ctx:
+            return "Ainda não ouvi nada nessa call."
+        prompt = ("Resuma em 3 a 5 frases curtas, em português, o que foi conversado nesta call. "
+                  "Diga quem falou o quê quando for importante. Só o resumo, sem introdução.\n\n" + ctx)
+        try:
+            return self.brain.complete_text(prompt, temperature=0.3, max_tokens=300).strip() or "Não consegui resumir agora."
+        except Exception as e:
+            logger.error(f"Resumo da call falhou: {e}")
+            return "Não consegui resumir agora (erro no cérebro)."
 
     def mudar_microfone(
         self,
@@ -2219,6 +2269,12 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
                 if lower_input in {"/acordar", "/voltar"}:
                     self.sair_modo_descanso()
                     continue
+                if lower_input in {"/call", "/discord"}:
+                    print("📞 " + (self.sair_modo_call() if self.call_listener.active else self.entrar_modo_call()))
+                    continue
+                if lower_input in {"/resumo", "/resumir"}:
+                    print("📞 " + self.resumir_call())
+                    continue
                 if lower_input in {"/gamer", "/jogo", "/assistindo"}:
                     if self.modo_gamer:
                         self.sair_modo_gamer(manual=True)
@@ -2269,6 +2325,10 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
             self.is_running = False
             try:
                 self.voice_input.stop_listening()
+            except Exception:
+                pass
+            try:
+                self.call_listener.stop()
             except Exception:
                 pass
             try:
