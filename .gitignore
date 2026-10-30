@@ -19,3 +19,6 @@ build/
 dist/
 *.spec
 relatorio_alicia.txt
+
+# nome reservado do Windows (criado por redirecionamentos > nul feitos no Linux)
+nul
