@@ -39,6 +39,15 @@ class SystemConfig:
         self.sem_filtro_temperature: float = 0.95
         self.sem_filtro_top_p: float = 0.95
         self.sem_filtro_max_tokens: int = 450
+        # RECONHECIMENTO DE VOZ (quem está falando). Local, em CPU; só age depois de alguém ser cadastrado, com consentimento.
+        self.voice_id_enabled: bool = True
+        self.voice_id_threshold: float = 0.55         # cosseno mínimo para afirmar quem é (calibrado com gravações reais)
+        self.voice_id_margin: float = 0.08            # vantagem mínima sobre a 2ª voz mais parecida; senão fica "incerto"
+        self.voice_id_enroll_samples: int = 5         # frases lidas no cadastro
+        self.voice_id_enroll_timeout: float = 120.0   # cadastro parado por tanto tempo é cancelado
+        self.voice_id_offer_unknown: bool = True      # voz desconhecida que chamar a Alicia na call recebe a oferta de cadastro
+        self.voice_id_offer_cooldown: float = 600.0   # intervalo mínimo entre ofertas (e após um "não")
+        self.voice_id_mic_default_owner: bool = True  # no SEU microfone, voz não reconhecida continua sendo tratada como a sua
         self.poker_voice: bool = True            # a Alicia fala as reações do pôquer (se a voz estiver ligada)
         self.avatar_relax_seconds: float = 8.0   # após uma emoção, volta ao rosto neutro (que respira e pisca)
         

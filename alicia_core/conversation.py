@@ -31,6 +31,9 @@ from .enums import AliciaExpression
 from .logging_setup import logger
 from .nvidia_client import BrainError
 from .prompts import PromptEngine
+from .voice_id import parse_voice_command
+
+_CALL_PREFIX = re.compile(r"^\(.*? diz na call\):\s*")
 
 
 class ConversationMixin:
@@ -117,6 +120,29 @@ class ConversationMixin:
         logger.info(f"Modo sem filtro {'LIGADO' if on else 'desligado'}.")
         return True
 
+    def estado(self) -> dict:
+        """Retrato dos modos ativos. Cada recurso guarda o PRÓPRIO estado; aqui eles só são lidos, nunca alterados."""
+        modo = ("descanso" if self.modo_descanso else "pôquer" if getattr(self, "poker_active", False)
+                else "gamer" if getattr(self, "modo_gamer", False) else "call" if self.call_listener.active else "normal")
+        vid = getattr(self, "voice_id", None)
+        return {
+            "modo": modo,
+            "sem_filtro": self.sem_filtro_ativo(),
+            "personalidade": self.get_personality(),
+            "reconhecimento_de_voz": bool(vid and vid.enabled),
+            "vozes_cadastradas": len(vid.store.list()) if vid else 0,
+            "cadastro_de_voz_em_andamento": bool(vid and vid.enrolling),
+        }
+
+    def _speaker_is_owner(self, source: str, speaker) -> bool:
+        """O dono (nome no banco) é quem fala? Na call, nunca. No microfone: voz reconhecida decide; voz não reconhecida
+        continua sendo tratada como o dono (é o microfone dele) a menos que voice_id_mic_default_owner esteja desligado."""
+        if source == "call_friend":
+            return False
+        if speaker is not None and speaker.known:
+            return bool(speaker.is_owner)
+        return speaker is None or bool(getattr(self.config, "voice_id_mic_default_owner", True))
+
     def get_personality(self) -> str:
         key = self.db.get_profile("personality")
         return key if key in PromptEngine.PERSONALITIES else PromptEngine.DEFAULT_PERSONALITY
@@ -168,7 +194,7 @@ class ConversationMixin:
     # ------------------------------------------------------------------
     # ENTRADA ÚNICA DE MENSAGENS
     # ------------------------------------------------------------------
-    def interact(self, user_message: str, source: str = "keyboard") -> str:
+    def interact(self, user_message: str, source: str = "keyboard", speaker=None) -> str:
         text = self._normalize_text(user_message)
         if not text:
             return ""
@@ -189,7 +215,7 @@ class ConversationMixin:
             logger.info(f"Mensagem ({source}) recusada: outro turno em andamento.")
             return "" if source in ("voice", "call_friend") else "[SERIO] Calma, ainda estou respondendo à mensagem anterior."
         try:
-            return self._interact_impl(text, source)
+            return self._interact_impl(text, source, speaker)
         finally:
             self._turn_lock.release()
 
@@ -217,7 +243,7 @@ class ConversationMixin:
         return self._tag(answer, expr)
 
     # ------------------------------------------------------------------
-    def _interact_impl(self, text: str, source: str) -> str:
+    def _interact_impl(self, text: str, source: str, speaker=None) -> str:
         turn_id = uuid.uuid4().hex
 
         # ---- modo descanso (não grava nada) ----
@@ -237,8 +263,23 @@ class ConversationMixin:
         self.total_interactions += 1
         meta = {"turn": self.total_interactions}
 
-        # Fala de OUTRA pessoa na call: só conversa. Nunca muda nome/memória/personalidade nem captura a tela.
-        remote = source == "call_friend"
+        # Fala de OUTRA pessoa (na call, ou uma voz cadastrada que não é o dono): só conversa. Nunca muda
+        # nome/memória/personalidade nem captura a tela, e não enxerga as memórias pessoais do dono.
+        remote = not self._speaker_is_owner(source, speaker)
+        if speaker is not None:
+            logger.info(f"🗣️ turno de {speaker.name or 'voz não reconhecida'} ({speaker.status}) | estado: {self.estado()}")
+        said = _CALL_PREFIX.sub("", text, count=1)         # a fala sem o "(Fulano diz na call):"
+
+        # ---- 0. comandos do reconhecimento de voz (cadastrar/apagar/refazer/listar/ligar/desligar) ----
+        vcmd = parse_voice_command(said)
+        if vcmd:
+            who_ok = (not remote) or (speaker is not None and speaker.known and vcmd[0] in ("voice_delete", "voice_list"))
+            if who_ok:
+                reply = self.voice_id.run_command(vcmd[0], vcmd[1], speaker, by_owner=not remote,
+                                                  call_active=self.call_listener.active)
+                answer, expr = reply[0], AliciaExpression.from_str(reply[1])
+                meta["event"] = vcmd[0]
+                return self._finish(text, answer, expr, turn_id, source, meta)
 
         # ---- 1. nome e memória (determinístico) ----
         cmd = None if remote else parse_command(text)
@@ -267,10 +308,14 @@ class ConversationMixin:
 
         # ---- 4. cérebro (API NVIDIA) ----
         name = self.db.get_user_name() or ""
+        if remote and speaker is not None and speaker.known:
+            name = speaker.name                      # quem fala é essa pessoa, não o dono
         try:
             in_call = self.call_listener.active
             raw = self.brain.reply(text, name, self.last_visual_context,
-                                   call_context=self.call_context.format_for_prompt() if in_call else "")
+                                   call_context=self.call_context.format_for_prompt() if in_call else "",
+                                   speaker_context=self.voice_id.context_for(speaker) if remote else "",
+                                   private_owner=not remote)
         except BrainError as e:
             logger.error(f"Cérebro indisponível neste turno: {e.kind}")
             self._forget_last_input()  # permite tentar de novo com a mesma frase
@@ -292,6 +337,8 @@ class ConversationMixin:
             self._forget_last_input()
             return self._tag(BrainError("bad_response").user_message, AliciaExpression.BRAVO)
 
+        if remote:
+            self.voice_id.record_interaction(speaker, said, answer)      # histórico individual, separado do principal
         return self._finish(text, answer, expr, turn_id, source, meta)
 
     # ------------------------------------------------------------------

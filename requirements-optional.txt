@@ -7,3 +7,4 @@ mss>=9.0                  # visão: captura de tela rápida (há alternativa com
 psutil>=5.9               # modo gamer: detecção de processos
 soundcard>=0.4.3        # modo call no Windows: captura o áudio que sai do PC (loopback WASAPI)
 numpy>=1.24               # modo call no Windows: conversão do áudio capturado
+onnxruntime>=1.17         # reconhecimento de voz por locutor (roda local, em CPU); o modelo (~26 MB) é baixado uma vez

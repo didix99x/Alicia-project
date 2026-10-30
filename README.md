@@ -94,6 +94,42 @@ desmarque **Modo de eficiência**; em *Configurações → Sistema → Energia*,
 - A **voz** muda ritmo, tom e volume conforme a emoção (feliz mais ligeira, pensativa mais lenta, brava mais firme, surpresa mais aguda), com uma pequena variação a cada frase. Emojis, links, markdown e travessões são tratados antes de falar. Para voltar à voz neutra: `"voice_expressive": false` no `config.json`.
 - Outra voz do Edge: `"voice_name": "pt-BR-ThalitaMultilingualNeural"` no `config.json` (se não funcionar, ela volta sozinha para a Francisca).
 
+## 🔥 Modo sem filtro (conversa solta entre amigos)
+
+Uma camada de **tom** por cima da personalidade escolhida: gírias, zoeira, sarcasmo, humor ácido, palavrão de brincadeira, sem sermão
+nem avisos desnecessários. Ela continua sendo a Alicia (gótica, sarcástica, provocadora); o modo só solta a linguagem.
+
+* **Ligar:** menu do avatar (botão direito) → `🔥 Modo sem filtro`, ou por voz/texto: *"Alicia, ativar modo sem filtro"*,
+  *"Alicia, pode falar livremente"*. **Desligar:** o mesmo item do menu, *"desativar modo sem filtro"* ou *"volta ao normal"*.
+* Enquanto estiver ligado aparece o selo **🔥 SEM FILTRO** no avatar e `· SEM FILTRO` no status do menu. O estado fica salvo (sobrevive a reiniciar).
+* Parâmetros próprios (`sem_filtro_temperature`, `sem_filtro_top_p`, `sem_filtro_max_tokens` no `config.json`); desligado, voltam os `brain_*` de sempre.
+* Amigos na call **não** conseguem ligar/desligar. O pôquer tem o próprio prompt e não é afetado.
+* **Limite:** o modo só muda o que a Alicia pede ao modelo. O modelo hospedado (NVIDIA) tem as próprias regras e pode recusar algo mesmo assim.
+  As proteções contra risco real (ódio contra grupos, assédio, ameaças, instruções perigosas, alguém em crise) continuam valendo.
+
+## 🎤 Reconhecimento de voz (quem está falando)
+
+Distingue pessoas pela voz (embeddings de locutor, WeSpeaker ResNet34 em ONNX). **Não é o STT**: o texto continua vindo do SpeechRecognition.
+Roda local, em CPU; nenhum áudio é gravado. Pede `onnxruntime` + `numpy` (o launcher instala) e um modelo de ~26 MB baixado **uma vez**
+do GitHub (checksum SHA-256 verificado) na primeira vez que alguém for cadastrado (`data/models/`).
+
+* **Cadastrar (sempre por voz e com autorização falada da própria pessoa):** *"Alicia, cadastrar minha voz"* ou *"cadastrar a voz do Pedro"*.
+  Ela explica o que será guardado, pede *"sim, autorizo"* e ouve 5 frases. Na call, uma voz desconhecida que chama a Alicia recebe a oferta
+  (*quer cadastrar? como te chamo?*); dizer não silencia a oferta por 10 min.
+* **Gerenciar:** *"apagar a voz do Pedro"*, *"apaga minha voz"* (a própria pessoa pode, se for reconhecida), *"refazer o cadastro do Pedro"*,
+  *"quais vozes você conhece"*, *"desativar/ativar reconhecimento de voz"*, *"cancelar cadastro"*; ou pelo menu `🎤 Reconhecimento de voz`.
+* **Perfis:** `data/users/user_001.json`, `user_002.json`… (um por pessoa: nome, consentimento, embedding, limiar, histórico de identificações,
+  preferências e contexto individual) e `unknown.json` (só contadores). `data/` está no `.gitignore`; arquivos com permissão 0600 no Linux.
+* **Decisão:** só afirma quem é com similaridade ≥ 0,55 **e** vantagem ≥ 0,08 sobre a segunda voz mais parecida. Entre 0,43 e 0,55, ou com duas
+  vozes parecidas, ela diz que não tem certeza (e pergunta *"é você, X?"*). Abaixo disso a pessoa é "Amigo" (desconhecido). Fala curta
+  (< 1 s de voz) não é identificada.
+* **Privacidade:** o contexto de cada pessoa é separado; amigos na call não veem as memórias pessoais do dono, e o dono não vê as de ninguém
+  misturadas. **A identificação por voz pode errar e não é autenticação**: nada sensível deve depender dela.
+* **Limites conhecidos:** duas pessoas falando ao mesmo tempo viram um trecho só (vence a voz mais forte); áudio comprimido do Discord, ruído
+  alto ou telefone degradam a confiança (viram "incerto"/"desconhecido", não um nome errado).
+* Config (`config.json`): `voice_id_enabled`, `voice_id_threshold`, `voice_id_margin`, `voice_id_enroll_samples`, `voice_id_offer_unknown`,
+  `voice_id_mic_default_owner` (no SEU microfone, voz não reconhecida continua sendo tratada como a sua).
+
 ## 🃏 Minigame de pôquer (Five-Card Draw contra a Alicia)
 **Abrir:** botão direito no avatar → **🃏 Jogar pôquer com a Alicia**, ou digite/diga *"vamos jogar pôquer"*, *"bora jogar poker"* ou `/poker`.
 O avatar flutuante some enquanto você joga e volta quando você clica em **Sair do jogo** (ou fecha a janela). A Alicia continua funcionando normalmente (conversa por teclado e voz, comandos); só os comentários espontâneos sobre a tela ficam pausados durante a partida.

@@ -366,6 +366,27 @@ class AliciaDesktopPetUI(QWidget):
         sf_action.setChecked(self.core.sem_filtro_ativo())
         sf_action.triggered.connect(lambda checked: self.core.set_sem_filtro(bool(checked)))
 
+        # Reconhecimento de voz (quem está falando): ligar/desligar e apagar perfis. O cadastro é por voz
+        # ("Alicia, cadastrar minha voz"), porque exige o consentimento falado da própria pessoa.
+        try:
+            vid = self.core.voice_id
+            voz_menu = menu.addMenu('🎤 Reconhecimento de voz')
+            voz_ativa = voz_menu.addAction('Ligado')
+            voz_ativa.setCheckable(True)
+            voz_ativa.setChecked(vid.enabled)
+            voz_ativa.triggered.connect(lambda checked: vid.run_command('voice_on' if checked else 'voice_off'))
+            perfis = vid.store.list()
+            if perfis:
+                apagar_menu = voz_menu.addMenu('Apagar a voz de...')
+                for perfil in perfis:
+                    acao = apagar_menu.addAction(perfil['name'])
+                    acao.triggered.connect(lambda checked, uid=perfil['user_id']: vid.store.delete(uid))
+            else:
+                vazio = voz_menu.addAction("Ninguém cadastrado — diga 'cadastrar minha voz'")
+                vazio.setEnabled(False)
+        except Exception as e:
+            logger.error(f"Erro ao montar o menu de reconhecimento de voz: {e}")
+
         menu.addSeparator()
 
         acao_poker = menu.addAction("🃏 Jogar pôquer com a Alicia")

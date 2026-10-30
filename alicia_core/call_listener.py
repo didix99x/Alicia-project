@@ -21,6 +21,7 @@ from .call_context import has_wake_word
 from .deps import HAS_SPEECH, sr
 from .logging_setup import logger
 from .virtual_audio import DEFAULT_DISCORD_APPS, SINK_VOICE, SOURCE_MIC, PactlError, VirtualAudio, run_pactl
+from .voice_id import VoiceID
 from .voice_input import UtteranceSegmenter
 
 if TYPE_CHECKING:
@@ -192,12 +193,25 @@ class CallListener:
                         logger.error(f"Reconhecimento da call falhou (internet/limite do Google?): {e}")
                         time.sleep(2)
                     continue
-                self.on_remote_text(text)
+                ident = None
+                vid = getattr(self.core, "voice_id", None)
+                if vid is not None and vid.enabled:
+                    try:
+                        if vid.enrolling:        # cadastro de voz em andamento: a fala é do cadastro, não da conversa
+                            reply = vid.feed_enrollment(text, data, ParecSource.SAMPLE_RATE, "call")
+                            if reply:
+                                self.core.say_voice_reply(reply)
+                                continue
+                        ident = vid.identify(data, ParecSource.SAMPLE_RATE, "call")
+                    except Exception as e:     # um erro de voz nunca derruba a escuta da call
+                        logger.error(f"Reconhecimento de voz na call falhou: {type(e).__name__}: {e}")
+                        ident = None
+                self.on_remote_text(text, speaker=VoiceID.label(ident, REMOTE_SPEAKER), identity=ident)
             except Exception as e:
                 logger.error(f"Erro ao tratar a fala da call: {type(e).__name__}: {e}")
 
     # ------------------------------------------------------------------
-    def on_remote_text(self, text: str, speaker: str = REMOTE_SPEAKER):
+    def on_remote_text(self, text: str, speaker: str = REMOTE_SPEAKER, identity=None):
         """Texto já transcrito de quem está na call: entra no contexto e, se a chamaram, ela responde."""
         if not text or len(text.strip()) < 2:
             return
@@ -218,4 +232,9 @@ class CallListener:
         if self.core.modo_descanso:
             logger.info("📞 Chamaram a Alicia, mas ela está em modo descanso (/acordar).")
             return
-        self.core.responder_na_call(text, speaker)
+        self.core.responder_na_call(text, speaker, identity)
+        vid = getattr(self.core, "voice_id", None)
+        if vid is not None and identity is not None:
+            offer = vid.maybe_offer(identity, source="call")      # voz desconhecida que chamou: oferece o cadastro
+            if offer:
+                self.core.say_voice_reply(offer)

@@ -22,3 +22,6 @@ relatorio_alicia.txt
 
 # nome reservado do Windows (criado por redirecionamentos > nul feitos no Linux)
 nul
+
+# perfis de voz (biometria) e modelo de locutor baixado
+data/

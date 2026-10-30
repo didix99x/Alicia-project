@@ -364,6 +364,23 @@ class VoiceInputEngine:
         if self._transcricao_parece_lixo(text):
             return
         label = (self.core.db.get_user_name() if hasattr(self.core, "db") else None) or "Você"
+
+        # Quem está falando? (só age se alguém já foi cadastrado, ou se um cadastro está em andamento)
+        ident = None
+        vid = getattr(self.core, "voice_id", None)
+        if vid is not None and vid.enabled:
+            try:
+                if vid.enrolling:
+                    reply = vid.feed_enrollment(text, data, rate, "mic")
+                    if reply:
+                        self.core.say_voice_reply(reply)
+                        return
+                ident = vid.identify(data, rate, "mic")
+                if ident.known and not ident.is_owner:
+                    label = ident.name
+            except Exception as e:           # um erro de voz nunca derruba o microfone
+                logger.error(f"Reconhecimento de voz no microfone falhou: {type(e).__name__}: {e}")
+                ident = None
         print(f"\n🎙️ {label} (Voz): {text}")
 
         in_call = self.core.call_listener.active
@@ -383,7 +400,7 @@ class VoiceInputEngine:
                 logger.info("😴 [Modo Descanso] Ignorando voz...")
             return
 
-        response = self.core.interact(text, source="voice")
+        response = self.core.interact(text, source="voice", **({"speaker": ident} if ident is not None else {}))
         if not response:
             return
         clean_response, expr = self.core.parse_expression_tags(response)

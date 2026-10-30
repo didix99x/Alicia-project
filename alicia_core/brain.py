@@ -85,12 +85,15 @@ class ConversationBrain:
         personality: str = "normal",
         call_context: str = "",
         sem_filtro: bool = False,
+        speaker_context: str = "",
+        private_owner: bool = True,
     ) -> List[Dict[str, str]]:
         """Monta a lista de mensagens (já normalizada). NÃO inclui a mensagem atual no histórico duas vezes."""
         limit = int(getattr(self.config, "brain_history_messages", 20))
         history = self.db.get_chat_messages(limit=limit, after_id=self.db.context_start_id())
-        memories = self._collect_memories(user_message)
-        recalled = self._collect_recalled(user_message, skip_latest=len(history))
+        # Quem fala não é o dono (amigo na call / voz cadastrada de outra pessoa): as memórias pessoais do dono ficam de fora.
+        memories = self._collect_memories(user_message) if private_owner else []
+        recalled = self._collect_recalled(user_message, skip_latest=len(history)) if private_owner else []
         wants_visual = bool(VISUAL_RE.search(_strip_accents(user_message.lower())))
         system = PromptEngine.chat_system_prompt(
             user_name=user_name,
@@ -102,6 +105,7 @@ class ConversationBrain:
             avoid_openers=self._recent_openers(history),
             call_context=call_context,
             sem_filtro=sem_filtro,
+            speaker_context=speaker_context,
         )
         messages: List[Dict[str, str]] = [{"role": "system", "content": system}]
         history = self._history_for_style(history)
@@ -155,12 +159,14 @@ class ConversationBrain:
             return history
         return before[-2:] + after
 
-    def reply(self, user_message: str, user_name: str, visual_context: str = "", call_context: str = "") -> str:
+    def reply(self, user_message: str, user_name: str, visual_context: str = "", call_context: str = "",
+              speaker_context: str = "", private_owner: bool = True) -> str:
         """Texto bruto do modelo (com tag de expressão). Levanta BrainError."""
         personality = self.db.get_profile("personality") or PromptEngine.DEFAULT_PERSONALITY
         sem_filtro = self.db.get_profile("sem_filtro") == "1"
         messages = self.build_messages(user_message, user_name, visual_context, personality=personality,
-                                       call_context=call_context, sem_filtro=sem_filtro)
+                                       call_context=call_context, sem_filtro=sem_filtro,
+                                       speaker_context=speaker_context, private_owner=private_owner)
         kwargs = dict(
             temperature=float(getattr(self.config, "brain_temperature", 0.8)),
             top_p=float(getattr(self.config, "brain_top_p", 0.9)),

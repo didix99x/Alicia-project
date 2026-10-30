@@ -30,6 +30,7 @@ from .prompts import PromptEngine
 from .voice_input import VoiceInputEngine
 from .call_context import CallContext
 from .call_listener import CallListener
+from .voice_id import VoiceID
 from .enums import AliciaExpression
 from .models import HardwareSnapshot
 from .logging_setup import logger
@@ -106,6 +107,8 @@ class AliciaAssistantCore(ConversationMixin):
             max_items=int(getattr(self.config, "call_context_max_items", 60)),
         )
         self.call_listener = CallListener(self)
+        # Quem está falando (locutor). Local; só atua depois de alguém ser cadastrado com consentimento.
+        self.voice_id = VoiceID(self.config, owner_name_getter=lambda: self.db.get_user_name() or "")
 
         self.is_running = False
         self.screen_watch_enabled = True
@@ -700,12 +703,22 @@ class AliciaAssistantCore(ConversationMixin):
         self.call_listener.stop()
         return "Modo call desligado. Áudio virtual removido."
 
-    def responder_na_call(self, texto: str, quem: str = "Amigo"):
+    def say_voice_reply(self, reply):
+        """Fala (e mostra) uma resposta do cadastro de voz. `reply` = (texto, expressão). Não passa pela conversa nem grava no histórico."""
+        text, expr = reply
+        try:
+            print(f"🤖 Alicia [{expr.upper()}]: {text}")
+            self.tts.speak(text, AliciaExpression.from_str(expr))
+        except Exception as e:
+            logger.error(f"Erro ao falar a resposta do cadastro de voz: {e}")
+
+    def responder_na_call(self, texto: str, quem: str = "Amigo", identity=None):
         """Alguém da call chamou a Alicia: responde (por voz, que sai também para a call)."""
         if self.modo_descanso or not self.is_running:
             return
         try:
-            response = self.interact(f"({quem} diz na call): {texto}", source="call_friend")
+            response = self.interact(f"({quem} diz na call): {texto}", source="call_friend",
+                                     **({"speaker": identity} if identity is not None else {}))
             if not response:
                 return
             clean, expr = self.parse_expression_tags(response)

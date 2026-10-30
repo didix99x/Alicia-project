@@ -12,6 +12,7 @@ Opcionais (o recurso correspondente fica desligado se faltarem):
   - psutil -> detecção de processos (HAS_PSUTIL)
 """
 
+import importlib.util as _ilu
 import os
 import sys
 
@@ -77,7 +78,6 @@ try:
 except Exception as _e:  # ImportError ou OSError (PortAudio ausente)
     SD_ERROR = str(_e)
 
-import importlib.util as _ilu
 HAS_PYAUDIO = _ilu.find_spec("pyaudio") is not None
 HAS_MIC = HAS_SPEECH and (HAS_SOUNDDEVICE or HAS_PYAUDIO)
 if HAS_MIC:
@@ -86,6 +86,17 @@ elif not HAS_SPEECH:
     MIC_ERROR = "SpeechRecognition não instalado (rode Iniciar_Alicia.bat --reinstall)"
 else:
     MIC_ERROR = "biblioteca de captura de áudio ausente (rode Iniciar_Alicia.bat --reinstall para instalar o sounddevice)"
+
+# ---- Reconhecimento de locutor (quem está falando; NÃO é o STT) --------------
+np = None
+HAS_NUMPY = False
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    pass
+# onnxruntime é pesado (~85 MB de RAM só para importar): aqui só se verifica que existe; quem usa importa na hora.
+HAS_ONNX = HAS_NUMPY and _ilu.find_spec("onnxruntime") is not None
 
 try:
     import psutil
