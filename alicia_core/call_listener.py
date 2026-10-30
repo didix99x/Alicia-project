@@ -104,13 +104,13 @@ class CallListener:
         was_active = self.active
         self.active = False
         self._gen += 1
-        if was_active or self.virtual.active:
-            self.virtual.teardown()
-            audio_output.set_output_sink(None)
         for t in self._threads:
             if t is not threading.current_thread():
                 t.join(timeout=2.0)
         self._threads = []
+        if was_active or self.virtual.active:
+            self.virtual.teardown()
+            audio_output.set_output_sink(None)
 
     def _alive(self, gen: int) -> bool:
         return self.core.is_running and self.active and self._gen == gen
@@ -148,7 +148,9 @@ class CallListener:
                     if chunk is None:
                         continue
                     if not chunk:
-                        raise RuntimeError("o parec encerrou (o destino de áudio sumiu?)")
+                        if self._alive(gen):
+                            raise RuntimeError("o parec encerrou (o destino de áudio sumiu?)")
+                        break
                     # Sem o canal isolado, o que a Alicia fala volta pelo monitor: ignora enquanto ela fala.
                     if not self._isolated and self._alicia_is_speaking():
                         seg.block()
@@ -199,11 +201,19 @@ class CallListener:
             return
         self.core.call_context.add(speaker, text)
         print(f"\n📞 {speaker} (call): {text}")
-        if not has_wake_word(text):
+        called = has_wake_word(text)
+        logger.info(f"📞 {speaker}: {text!r} -> {'CHAMOU a Alicia' if called else 'sem chamada'}")
+        if not called:
             return
         now = time.time()
-        if now - self._last_reply < float(self._cfg("call_reply_cooldown", 6.0)):
-            logger.info("📞 Chamaram a Alicia de novo cedo demais; ignorado.")
+        if self._alicia_is_speaking():
+            logger.info("📞 Chamaram a Alicia enquanto ela falava; ignorado.")
+            return
+        if now - self._last_reply < float(self._cfg("call_reply_cooldown", 2.0)):
+            logger.info("📞 Chamaram a Alicia de novo em menos de 2 s (mesma frase repartida?); ignorado.")
             return
         self._last_reply = now
+        if self.core.modo_descanso:
+            logger.info("📞 Chamaram a Alicia, mas ela está em modo descanso (/acordar).")
+            return
         self.core.responder_na_call(text, speaker)

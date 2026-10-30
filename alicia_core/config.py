@@ -91,7 +91,7 @@ class SystemConfig:
         self.call_discord_apps: list = ["discord", "vesktop", "webcord", "armcord", "legcord", "equibop"]
         self.call_context_seconds: float = 600.0   # quanto tempo de conversa ela lembra
         self.call_context_max_items: int = 60
-        self.call_reply_cooldown: float = 6.0      # intervalo mínimo entre respostas na call
+        self.call_reply_cooldown: float = 2.0      # intervalo mínimo entre chamadas (evita responder 2x à mesma frase)
         self.call_end_silence: float = 0.9         # silêncio que encerra a fala do amigo
         self.call_energy_floor: int = 150
 

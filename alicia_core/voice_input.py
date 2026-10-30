@@ -370,7 +370,9 @@ class VoiceInputEngine:
         if in_call:
             # Seu microfone também conta para o contexto; na call ela só responde se você a chamar pelo nome.
             self.core.call_context.add(label, text)
-            if not has_wake_word(text):
+            called = has_wake_word(text)
+            logger.info(f"📞 {label}: {text!r} -> {'CHAMOU a Alicia' if called else 'sem chamada'}")
+            if not called:
                 return
 
         if self.core.modo_descanso:

@@ -13,11 +13,12 @@ from alicia_core.virtual_audio import (SINK_DISCORD, SINK_MIX, SINK_VOICE, SOURC
 
 class WakeWordTests(unittest.TestCase):
     def test_detecta_o_nome(self):
-        for t in ("Alicia, o que acha?", "ei alícia", "ALICIA!", "fala aí Alisia"):
+        for t in ("Alicia, o que acha?", "ei alícia", "ALICIA!", "fala aí Alisia",
+                  "talicia resume para mim", "anicia O que você acha", "e Alicia me ajuda", "Oi Alícia tudo bem"):
             self.assertTrue(has_wake_word(t), t)
 
     def test_nao_dispara_sem_o_nome(self):
-        for t in ("", "vamos jogar", "a malícia dele", "policia chegou", "alicias"):
+        for t in ("", "vamos jogar", "a malícia dele", "policia chegou", "alicias", "que delícia", "notícia boa"):
             self.assertFalse(has_wake_word(t), t)
 
 
@@ -187,6 +188,21 @@ class CallFlowTests(CoreCase):
         self.core.call_listener.active = False
         self.ask("oi, tudo bem?")
         self.assertNotIn("CALL AO VIVO", self.srv.requests[-1]["messages"][0]["content"])
+
+    def test_nome_colado_na_palavra_anterior_ainda_chama(self):
+        self.core.call_listener.on_remote_text("talicia resume para mim o que ele falou")
+        self.assertEqual(len(self.core.tts.spoken), 1)
+
+    def test_nao_responde_enquanto_ela_esta_falando(self):
+        self.core.tts.is_speaking = True
+        self.core.call_listener.on_remote_text("Alicia, e aí?")
+        self.assertEqual(self.core.tts.spoken, [])
+        self.assertEqual(len(self.srv.requests), 0)
+
+    def test_em_modo_descanso_nao_responde(self):
+        self.core.modo_descanso = True
+        self.core.call_listener.on_remote_text("Alicia, acorda!")
+        self.assertEqual(self.core.tts.spoken, [])
 
     def test_amigo_nao_muda_nome_nem_grava_memoria(self):
         self.core.call_listener.on_remote_text("Alicia, me chama de Zé")

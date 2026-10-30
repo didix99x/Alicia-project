@@ -12,10 +12,15 @@ import threading
 import time
 import unicodedata
 from collections import deque
+from difflib import SequenceMatcher
 from typing import Callable, Deque, List, Tuple
 
-# "Alicia" como o reconhecedor costuma escrever (com ou sem acento); só como palavra inteira.
-_WAKE_RE = re.compile(r"\b(?:alicia|alisia)\b")
+# O Google nem sempre escreve "Alicia": no começo da frase cola na palavra anterior ("talicia resume...",
+# "anicia o que acha...") ou erra uma letra. Por isso comparamos palavra a palavra por semelhança.
+_NAME = "alicia"
+_WAKE_EXTRA = {"alice", "alise", "alisia", "alicea"}
+_NOT_WAKE = {"malicia", "malicias", "alicias", "policia", "delicia"}      # palavras reais parecidas
+_WAKE_RATIO = 0.8
 
 
 def _strip_accents(text: str) -> str:
@@ -23,7 +28,14 @@ def _strip_accents(text: str) -> str:
 
 
 def has_wake_word(text: str) -> bool:
-    return bool(text and _WAKE_RE.search(_strip_accents(text.lower())))
+    if not text:
+        return False
+    for tok in re.findall(r"[a-z]+", _strip_accents(text.lower())):
+        if len(tok) < 4 or tok in _NOT_WAKE:
+            continue
+        if tok == _NAME or tok in _WAKE_EXTRA or SequenceMatcher(None, tok, _NAME).ratio() >= _WAKE_RATIO:
+            return True
+    return False
 
 
 class CallContext:
