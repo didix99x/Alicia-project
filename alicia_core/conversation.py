@@ -30,6 +30,7 @@ from .database import _hash, _strip_accents
 from .enums import AliciaExpression
 from .logging_setup import logger
 from .nvidia_client import BrainError
+from .observer import parse_observer_command
 from .prompts import PromptEngine
 
 
@@ -101,6 +102,52 @@ class ConversationMixin:
     def get_personality(self) -> str:
         key = self.db.get_profile("personality")
         return key if key in PromptEngine.PERSONALITIES else PromptEngine.DEFAULT_PERSONALITY
+
+    def _mark_style_boundary(self):
+        """Respostas ANTERIORES (no tom velho) deixam de puxar o tom das próximas. Só move um ponteiro; não apaga nada."""
+        try:
+            last = self.db.get_chat_messages(limit=1)
+            self.db.set_profile("personality_since_id", str(last[0]["id"] if last else 0))
+        except Exception as e:
+            logger.warning(f"Não consegui marcar o ponto da troca de estilo: {e}")
+
+    # ------------------------------------------------------------------
+    # MODO SEM FILTRO e MODO OBSERVADORA (liga/desliga por voz, teclado ou botão)
+    # ------------------------------------------------------------------
+    def set_unfiltered(self, on: bool) -> str:
+        """Liga/desliga a camada Sem Filtro. Não mexe na personalidade guardada, no histórico nem nas memórias."""
+        changed = self.unfiltered.set_enabled(on)
+        if changed:
+            self._mark_style_boundary()
+            if bool(getattr(self.config, "unf_remember_state", False)):
+                try:
+                    self.db.set_profile("unfiltered_mode", "1" if on else "0")
+                except Exception as e:
+                    logger.warning(f"Não consegui guardar o estado do Modo Sem Filtro: {e}")
+            logger.info(f"🔥 Modo Sem Filtro {'LIGADO' if on else 'DESLIGADO'}.")
+        return self.unfiltered.confirmation(on, changed)
+
+    def set_observer(self, on: bool) -> str:
+        return self.observer.start() if on else self.observer.stop()
+
+    def _mode_command(self, text: str, allow_observer: bool = True):
+        """(resposta, expressão) se o texto for comando dos modos; senão None."""
+        low = text.strip().lower()
+        kind = self.unfiltered.parse_command(text)
+        if low in ("/semfiltro", "/sem-filtro", "/sem_filtro"):
+            kind = "off" if self.unfiltered.enabled else "on"
+        if kind:
+            msg = self.set_unfiltered(kind == "on")
+            return msg, (AliciaExpression.FELIZ if kind == "on" else AliciaExpression.SERIO)
+        if not allow_observer:
+            return None
+        if low in ("/observar", "/observadora"):
+            okind = "off" if self.observer.active else "on"
+        else:
+            okind = parse_observer_command(text)
+        if okind:
+            return self.observer.handle_command(okind)
+        return None
 
     def set_personality(self, key: str) -> bool:
         """Troca o estilo. Não toca no histórico nem nas memórias: o próximo turno já usa o novo tom."""
@@ -221,6 +268,13 @@ class ConversationMixin:
         # Fala de OUTRA pessoa na call: só conversa. Nunca muda nome/memória/personalidade nem captura a tela.
         remote = source == "call_friend"
 
+        # ---- 0. modos: Observadora e Sem Filtro (determinístico, antes de tudo) ----
+        mode = None if remote else self._mode_command(text)
+        if mode:
+            answer, expr = mode
+            meta["event"] = "mode_command"
+            return self._finish(text, answer, expr, turn_id, source, meta)
+
         # ---- 1. nome e memória (determinístico) ----
         cmd = None if remote else parse_command(text)
         if cmd:
@@ -251,7 +305,8 @@ class ConversationMixin:
         try:
             in_call = self.call_listener.active
             raw = self.brain.reply(text, name, self.last_visual_context,
-                                   call_context=self.call_context.format_for_prompt() if in_call else "")
+                                   call_context=self.call_context.format_for_prompt() if in_call else "",
+                                   overlay=self.unfiltered.overlay("chat", text))
         except BrainError as e:
             logger.error(f"Cérebro indisponível neste turno: {e.kind}")
             self._forget_last_input()  # permite tentar de novo com a mesma frase
@@ -284,6 +339,11 @@ class ConversationMixin:
         Só os comandos de personalidade continuam valendo (mudam o tom da mesa). Frases como 'esquece isso' ou
         'lembra que...' ditas no calor do jogo NÃO apagam nem criam memórias: viram conversa da partida.
         """
+        mode = self._mode_command(text, allow_observer=False)
+        if mode:
+            return self._tag(*mode)
+        if self.observer.parse_command(text) == "on":
+            return self._tag("Na mesa eu só olho para as cartas. Depois da partida eu volto a observar a sua tela.", AliciaExpression.SERIO)
         cmd = parse_command(text)
         if cmd and cmd[0] in ("personality", "personality_menu"):
             answer, expr = self._run_memory_command(*cmd)
@@ -349,7 +409,8 @@ class ConversationMixin:
                 return ("Comandos: 'me chama de X' troca seu nome; 'lembre que ...' guarda uma memória; "
                         "'esqueça ...' apaga; 'o que você lembra de mim' lista; 'vamos jogar pôquer' abre a mesa; 'seja carinhosa/séria/brincalhona/malcriada/normal' troca meu jeito; '/novoassunto' começa um assunto "
                         "limpo sem apagar nada; '/backup' copia a memória; '/exportar' gera um texto da conversa; "
-                        "'Alicia, olha a tela' analisa a tela; '/descanso', '/acordar', '/gamer' e 'sair'."), AliciaExpression.PENSANDO
+                        "'Alicia, olha a tela' analisa a tela agora; 'Alicia, observar minha tela' / 'pare de observar' liga e desliga a observadora (ou /observar); "
+                        "'Alicia, o que estou fazendo?'; 'Alicia, ativar modo sem filtro' / 'voltar ao normal' (ou /semfiltro); '/descanso', '/acordar', '/gamer' e 'sair'."), AliciaExpression.PENSANDO
 
             if kind == "backup":
                 path = self.db.backup()

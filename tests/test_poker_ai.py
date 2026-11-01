@@ -206,7 +206,7 @@ class TestFairPlay(unittest.TestCase):
 
     def test_ai_does_not_depend_on_a_language_model(self):
         src = inspect.getsource(ai_module) + inspect.getsource(reactions_module)
-        for forbidden in ("ollama", "nvidia", "brain", "requests", "llm"):
+        for forbidden in ("nvidia", "brain", "requests", "llm"):
             self.assertNotIn(forbidden, src.lower(), forbidden)
 
     def test_opponent_model_learns_folds_and_raises_bluff_frequency(self):

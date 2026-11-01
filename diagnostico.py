@@ -3,10 +3,12 @@
 """
 Diagnóstico da Alicia (roda dentro do ambiente virtual).
 
-  python diagnostico.py            -> verificação completa (inclui rede e interface)
-  python diagnostico.py --quick    -> só o que é local (sem rede), usado a cada inicialização
+  python diagnostico.py              -> verificação completa (testes reais de interface, áudio, tela, OCR e rede)
+  python diagnostico.py --quick      -> só o que é local (sem rede), usado a cada inicialização
+  python diagnostico.py --skip-libs  -> pula a parte de bibliotecas (o iniciador já a verificou com os MESMOS critérios)
 
-Cada linha mostra [OK], [AVISO] ou [FALHA] e, quando não está OK, o que fazer.
+A parte de bibliotecas/ambiente vem de alicia_core/envcheck.py, o mesmo módulo que o Iniciar_Alicia.bat usa.
+Cada linha mostra [OK], [AVISO] ou [ERRO] e, quando não está OK, o que fazer.
 A chave da API NUNCA é exibida.
 Código de saída: 0 = pode iniciar (avisos permitidos); 1 = há falha essencial.
 """
@@ -23,12 +25,13 @@ os.chdir(APP_DIR)
 sys.path.insert(0, str(APP_DIR))
 
 QUICK = "--quick" in sys.argv
+SKIP_LIBS = "--skip-libs" in sys.argv
 results = []  # (nivel, titulo, detalhe)
 
 
 def add(level, title, hint=""):
     results.append((level, title, hint))
-    tag = {"ok": "[ OK  ]", "warn": "[AVISO]", "fail": "[FALHA]"}[level]
+    tag = {"ok": "[OK]   ", "warn": "[AVISO]", "fail": "[ERRO] "}[level]
     print(f"{tag} {title}")
     if hint and level != "ok":
         for line in hint.splitlines():
@@ -39,33 +42,33 @@ def module_ok(name):
     return importlib.util.find_spec(name) is not None
 
 
-def check_python():
-    v = sys.version_info
-    if v < (3, 10):
-        add("fail", f"Python {v.major}.{v.minor} é antigo demais", "Instale o Python 3.11 ou 3.12 (python.org) e apague a pasta .venv.")
+def check_environment(deep):
+    """Python, ambiente virtual, bibliotecas, áudio, tela, OCR, arquivos e config.json — critérios compartilhados com o iniciador."""
+    from alicia_core import envcheck
+    probe = envcheck.probe_local(deep=deep)
+    specs = envcheck.load_specs(APP_DIR)
+    items = [envcheck.python_item(probe["python"], probe["bits"], probe.get("machine", ""))]
+    if probe.get("in_venv"):
+        items.append(envcheck.venv_item("ok"))
     else:
-        add("ok", f"Python {v.major}.{v.minor}.{v.micro}")
-
-
-def check_dependencies():
-    essential = {"requests": "requests", "PIL": "Pillow", "PyQt6": "PyQt6"}
-    for mod, pkg in essential.items():
-        if module_ok(mod):
-            add("ok", f"Biblioteca essencial: {pkg}")
-        else:
-            add("fail", f"Biblioteca essencial ausente: {pkg}", "Rode Iniciar_Alicia.bat de novo (ele instala) ou: .venv\\Scripts\\python -m pip install " + pkg)
-    optional = {
-        "edge_tts": ("edge-tts", "sem ela a Alicia não fala em voz alta"),
-        "speech_recognition": ("SpeechRecognition", "sem ela o microfone fica desligado"),
-        "sounddevice": ("sounddevice", "sem ela o microfone fica desligado"),
-        "mss": ("mss", "a captura de tela usa o método mais lento do Pillow"),
-        "psutil": ("psutil", "o modo gamer detecta menos processos"),
-    }
-    for mod, (pkg, consequence) in optional.items():
-        if module_ok(mod):
-            add("ok", f"Biblioteca opcional: {pkg}")
-        else:
-            add("warn", f"Biblioteca opcional ausente: {pkg}", consequence)
+        items.append(envcheck.Item("venv", "Ambiente virtual (.venv) não está em uso", envcheck.OPTIONAL_MISSING, False,
+                                   "este diagnóstico rodou fora da .venv; use Diagnostico_Alicia.bat para testar o ambiente real", kind="venv"))
+    groups = envcheck.evaluate(probe, specs)
+    items += groups
+    items.append(envcheck.tesseract_item(probe, next((g for g in groups if g.key == "ocr"), None)))
+    items.append(envcheck.vlm_item(probe))
+    items += envcheck.file_items(APP_DIR)
+    items.append(envcheck.config_item(APP_DIR))
+    for it in items:
+        level = {"ok": "ok", "warn": "warn", "error": "fail"}[it.level]
+        if it.state == envcheck.FAILED and not it.required:
+            level = "warn" if it.kind in ("config",) else "fail"
+        title = f"Componente opcional ausente: {it.label}" if (it.state == envcheck.OPTIONAL_MISSING and it.kind == "group") else it.label
+        hint = "\n".join(x for x in (it.detail, f"Sem isso: {it.effect}." if it.effect and it.state != envcheck.OK else "") if x)
+        add(level, title, hint if level != "ok" else "")
+        if level == "ok" and it.detail and "--verbose" in sys.argv:
+            print(f"         {it.detail}")
+    return items
 
 
 def check_package_imports():
@@ -102,16 +105,8 @@ def check_env():
     return key
 
 
-def check_config_and_db():
+def check_db():
     cfg = pathlib.Path("config.json")
-    if cfg.exists():
-        try:
-            json.loads(cfg.read_text(encoding="utf-8"))
-            add("ok", "config.json válido")
-        except Exception as e:
-            add("fail", f"config.json inválido: {e}", "Renomeie config.json para config.json.bak; a Alicia recria um novo (seus dados ficam no banco).")
-    else:
-        add("ok", "config.json será criado na primeira execução")
     try:
         from alicia_core.database import MemoryDatabase, DatabaseUnavailable
         db_path = "alicia_memory.db"
@@ -189,49 +184,30 @@ def check_ui():
         add("fail", f"A interface não inicializou: {type(e).__name__}: {e}", "Reinstale o PyQt6: .venv\\Scripts\\python -m pip install --force-reinstall PyQt6")
 
 
-def check_audio():
-    from alicia_core import deps
-    add("ok" if deps.HAS_AUDIO else "warn", "Saída de áudio (voz)" + (f" via {deps.AUDIO_BACKEND}" if deps.HAS_AUDIO else " indisponível"),
-        "" if deps.HAS_AUDIO else f"Motivo: {deps.AUDIO_ERROR}. A Alicia segue por texto.")
-    if not deps.HAS_MIC:
-        add("warn", "Microfone indisponível", deps.MIC_ERROR)
-    else:
-        try:
-            from alicia_core.audio_input import list_microphones
-            mics = list_microphones()
-            add("ok" if mics else "warn", f"Microfones encontrados: {len(mics)}",
-                "" if mics else "Conecte um microfone e confira Configurações do Windows > Privacidade > Microfone. A Alicia segue por teclado.")
-        except Exception as e:
-            add("warn", f"Não consegui listar microfones: {e}", "A Alicia segue por teclado.")
-
-
-def check_ollama():
-    try:
-        import requests
-        cfg = json.loads(pathlib.Path("config.json").read_text(encoding="utf-8")) if pathlib.Path("config.json").exists() else {}
-        host = cfg.get("ollama_host", "http://localhost:11434").rstrip("/")
-        ok = requests.get(host + "/api/tags", timeout=3).status_code == 200
-        add("ok" if ok else "warn", "Ollama (só para visão/modo gamer)" + (" disponível" if ok else " respondeu com erro"))
-    except Exception:
-        add("warn", "Ollama não está rodando", "É opcional: sem ele a Alicia conversa normalmente, mas não olha a tela nem usa o modo gamer.")
-
-
 def main():
     print("\n=== Diagnóstico da Alicia ===\n")
-    check_python()
-    check_dependencies()
+    env_items = []
+    if not SKIP_LIBS:
+        env_items = check_environment(deep=not QUICK)
     check_package_imports()
     key = check_env()
-    check_config_and_db()
+    check_db()
     if not QUICK:
         if key:
             check_api(key)
         check_ui()
-        check_audio()
-        check_ollama()
     fails = [r for r in results if r[0] == "fail"]
     warns = [r for r in results if r[0] == "warn"]
-    print(f"\nResumo: {len(results) - len(fails) - len(warns)} OK, {len(warns)} aviso(s), {len(fails)} falha(s).")
+    print(f"\nResumo: {len(results) - len(fails) - len(warns)} OK, {len(warns)} aviso(s), {len(fails)} erro(s).")
+    if env_items:
+        from alicia_core import envcheck
+        s = envcheck.summarize(env_items)
+        print(f"  - Componentes funcionando: {len(s['ok'])}")
+        print(f"  - Componentes ausentes: {len(s['missing'])}")
+        print(f"  - Componentes com falha: {len(s['failed'])}")
+        print(f"  - Componentes opcionais indisponíveis: {len(s['optional'])}")
+    if fails or warns:
+        print("\nPara corrigir automaticamente o que for possível: Iniciar_Alicia.bat --repair")
     sys.exit(1 if fails else 0)
 
 

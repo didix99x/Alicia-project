@@ -574,14 +574,15 @@ class TestExtras(CoreCase):
 
 class TestLauncherHelpers(unittest.TestCase):
     def test_requirements_parsing_and_import_names(self):
-        import launcher
-        specs = launcher.parse_requirements(APP_DIR / "requirements-optional.txt")
-        self.assertIn("edge-tts>=6.1.9", specs)
-        self.assertTrue(all("#" not in s for s in specs))
-        self.assertEqual(launcher.import_name("Pillow>=10.0"), "PIL")
-        self.assertEqual(launcher.import_name("edge-tts>=6.1.9"), "edge_tts")
-        self.assertEqual(launcher.import_name("SpeechRecognition>=3.10"), "speech_recognition")
-        self.assertEqual(len(launcher.requirements_fingerprint()), 64)
+        from alicia_core import envcheck
+        specs = envcheck.parse_requirements(APP_DIR / "requirements-optional.txt", False)
+        self.assertIn("edge-tts>=7.0.0", [s.line for s in specs])
+        self.assertTrue(all("#" not in s.line for s in specs))
+        mods = {s.name: s.info.module for s in envcheck.load_specs(APP_DIR)}
+        self.assertEqual(mods["Pillow"], "PIL")
+        self.assertEqual(mods["edge-tts"], "edge_tts")
+        self.assertEqual(mods["SpeechRecognition"], "speech_recognition")
+        self.assertEqual(mods["rapidocr-onnxruntime"], "rapidocr_onnxruntime")
 
 
 class TestPersonality(CoreCase):
@@ -992,6 +993,12 @@ class TestVisionAndVoiceCommands(CoreCase):
         buf = io.BytesIO(); Image.new("RGB", (64, 64), (10, 120, 200)).save(buf, "JPEG")
         self.b64 = base64.b64encode(buf.getvalue()).decode()
         self.core.screen_engine.capture_and_encode = lambda: (self.b64, Image.new("RGB", (64, 64)), "hash123")
+        # Estes testes cobrem o caminho de RESERVA (modelo de visão remoto da NVIDIA). O olhar principal agora é local
+        # (ver tests/test_observer.py): aqui simulamos que ele falhou e que o envio remoto foi autorizado.
+        def _no_local_capture(*a, **k):
+            raise RuntimeError("captura local indisponível neste teste")
+        self.core.screen_engine.capture_raw = _no_local_capture
+        self.core.vision.allow_remote = True
         self.srv.reply_fn = lambda msgs: ("[SURPRESA] Vejo uma tela azul." if isinstance(msgs[-1]["content"], list)
                                           else "[FELIZ] Resposta de texto.")
         self.core.vision.on_model_change = None
@@ -1003,7 +1010,7 @@ class TestVisionAndVoiceCommands(CoreCase):
             out = self.core.interact(phrase, source="voice")
             self.assertIn("tela azul", out, phrase)
 
-    def test_without_ollama_uses_nvidia_vision_with_real_image_payload(self):
+    def test_remote_vision_fallback_sends_real_image_payload(self):
         out = self.ask("Alicia, olha")
         self.assertTrue(out.startswith("[SURPRESA]"))
         img_requests = [r for r in self.srv.requests if isinstance(r["messages"][-1]["content"], list)]
@@ -1015,29 +1022,6 @@ class TestVisionAndVoiceCommands(CoreCase):
         rows = self.core.db.get_chat_messages(10)
         self.assertEqual([r["role"] for r in rows], ["user", "assistant"])
         self.assertEqual(rows[0]["content"], "Alicia, olha")
-
-    def test_ollama_is_preferred_when_available(self):
-        class FakeOllama:
-            calls = 0
-            def generate(s, **kw):
-                FakeOllama.calls += 1
-                return "[FELIZ] Vejo o seu código."
-        self.core.vision.ollama = FakeOllama()
-        self.core.vision.use_ollama = True
-        self.core.vision_available = True
-        out = self.ask("Alicia, olha")
-        self.assertIn("seu código", out)
-        self.assertEqual(FakeOllama.calls, 1)
-        self.assertEqual(self.srv.requests, [])
-
-    def test_ollama_failure_falls_back_to_nvidia(self):
-        class BrokenOllama:
-            def generate(s, **kw): return None
-        self.core.vision.ollama = BrokenOllama()
-        self.core.vision.use_ollama = True
-        self.core.vision_available = True
-        out = self.ask("Alicia, olha")
-        self.assertIn("tela azul", out)
 
     def test_no_vision_anywhere_gives_clear_message_and_is_not_saved(self):
         self.srv.bad_models = {m: (404, "Not found") for m in ["nvidia/nemotron-3.5-super-vl-120b-a12b", "moonshotai/kimi-k3", "z-ai/glm-5.3", "google/gemma-4-31b-it"]}
@@ -1112,6 +1096,9 @@ class TestSelfTestScript(TmpDirCase):
             "from PIL import Image\n"
             "from alicia_core import screen\n"
             "screen.ScreenAnalyzerEngine._capture = lambda self: Image.new('RGB', (800, 600), (10, 90, 160))\n"
+            "from alicia_core.hardware import HardwareMonitor\n"
+            "HardwareMonitor.get_active_process_name = staticmethod(lambda: 'code.exe')\n"
+            "HardwareMonitor.get_active_window_title = staticmethod(lambda: 'main.py - Alicia - Visual Studio Code')\n"
             "sys.argv = ['teste_completo.py', '--sem-audio']\n"
             "runpy.run_path(%r, run_name='__main__')\n"
         ) % (str(APP_DIR), str(APP_DIR / "teste_completo.py"))

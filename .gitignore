@@ -15,6 +15,9 @@ exportacoes/
 __pycache__/
 *.pyc
 .alicia_setup_ok
+.alicia_setup_state.json
+.venv.quebrada-*/
+config.json.bak-*
 build/
 dist/
 *.spec
@@ -22,3 +25,5 @@ relatorio_alicia.txt
 
 # nome reservado do Windows (criado por redirecionamentos > nul feitos no Linux)
 nul
+
+models/

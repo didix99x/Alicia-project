@@ -1,21 +1,71 @@
 # Alicia — assistente pessoal (cérebro via API NVIDIA)
 
-## Primeira vez (Windows 10/11)
-1. **Crie uma chave NOVA** em https://build.nvidia.com (Settings → API Keys). A chave que foi colada
-   numa conversa deve ser considerada exposta: **revogue-a** no painel.
-2. Dê dois cliques em **`Iniciar_Alicia.bat`**. Ele:
-   - procura o Python e, **se não achar, instala o Python 3.12 sozinho** (winget ou download oficial do python.org);
-   - cria o ambiente `.venv`, instala as bibliotecas essenciais e tenta as opcionais uma a uma;
+## Primeira vez (Windows 10/11, 64 bits)
+1. **Crie uma chave NOVA** em https://build.nvidia.com (Settings → API Keys). Uma chave colada em conversa deve ser considerada exposta: **revogue-a** no painel.
+2. Dê dois cliques em **`Iniciar_Alicia.bat`**. Você não precisa saber nada de Python nem abrir terminal. Ele:
+   - verifica o seu computador **sem alterar nada**;
+   - se estiver tudo certo, segue direto; se faltar algo, **explica em linguagem simples e pergunta** o que fazer (veja *Instalação automática*);
    - cria o `.env` e pede a chave (a digitação fica oculta);
    - valida a chave e o modelo na API da NVIDIA e roda o diagnóstico;
    - abre a Alicia e **pergunta como você quer ser chamado** (salvo para sempre no banco).
    Logo depois do nome ela pergunta a **personalidade** (1 Normal, 2 Brincalhona, 3 Séria, 4 Malcriada, 5 Carinhosa).
 3. Converse **na janela preta** (teclado) ou pelo microfone. O avatar é só a parte visual; não feche a janela preta.
 
-O iniciador também **baixa o que faltar** em qualquer execução (bibliotecas essenciais e opcionais). A visão (Ollama + modelo, vários GB) só é baixada se você responder **s** à pergunta — ou depois com `Iniciar_Alicia.bat --vision`.
+**Sem Python?** O `.bat` explica o que é, pede a sua autorização e só então baixa o instalador oficial do python.org (confere a assinatura digital da Python Software Foundation,
+abre o instalador com barra de progresso visível, instala só para o seu usuário, sem pedir administrador e sem mexer no PATH).
+
+## Instalação automática (como o iniciador funciona)
+A cada execução ele confere: Python (versão e 64 bits), ambiente `.venv` (existe? funciona?), **cada biblioteca de `requirements.txt` e `requirements-optional.txt` é realmente importada**
+(listar não basta), interface gráfica, áudio, reconhecimento e síntese de voz, captura de tela, imagens, OCR, arquivos essenciais e `config.json`.
+Se algo faltar ou estiver quebrado, aparece:
+
+```
+Alicia identificou alguns componentes necessários que ainda não estão instalados no seu computador.
+Deseja continuar?
+  1. Instalar todos os componentes necessários.
+  2. Instalar somente os componentes obrigatórios.
+  3. Visualizar detalhes dos componentes ausentes.
+  4. Continuar sem instalar, quando possível.
+  5. Cancelar inicialização.
+```
+- **Nada é baixado nem alterado antes da sua resposta.** Tudo vai para dentro da pasta `.venv` da Alicia (nunca no Python do sistema), de fontes oficiais (PyPI / python.org).
+- Só instala **o que falta** ou o que está quebrado/desatualizado; não reinstala nem atualiza o que já funciona.
+- Mostra o progresso (`[2/5] Instalando PyQt6 ...`), avisa `[OK]` por componente e, no fim, **confere tudo de novo**.
+- Falhou? Explica em português simples (sem internet, sem espaço, sem versão compatível...) e oferece tentar de novo. **Sem internet:** diz quais componentes não foram baixados e você tenta depois.
+- **Componentes opcionais** (voz, microfone, OCR, captura rápida...) nunca impedem a Alicia de abrir. Se você escolher a opção 4, ele lembra e não pergunta de novo até algo mudar.
+- Tudo é registrado (sem conversas, telas, chave ou dados pessoais) em `logs\instalacao_alicia.log`.
+
+## Diagnóstico e reparo
+`Diagnostico_Alicia.bat` usa **exatamente os mesmos critérios** do iniciador (módulo `alicia_core/envcheck.py`) e faz testes reais:
+```
+[OK]    Interface gráfica          [OK]    Sistema de áudio        [OK]    Reconhecimento de voz
+[OK]    Síntese de voz             [OK]    Captura de tela         [ERRO]  OCR (leitura de texto da tela)
+[AVISO] Componente opcional ausente: ...
+Resumo: componentes funcionando / ausentes / com falha / opcionais indisponíveis
+```
+Depois do relatório ele oferece corrigir. Outras opções: `Iniciar_Alicia.bat --repair` (verifica e repara, sem abrir a Alicia), `--reinstall` (pede confirmação e reinstala tudo).
+- **`.venv` corrompida ou ausente:** é recriada. Só a pasta `.venv` é removida: memória, banco, `config.json`, históricos, imagens, animações e perfis **não são tocados**.
+- **`config.json` inválido ou com valores errados:** é corrigido só com a sua autorização, **sempre com cópia** (`config.json.bak-AAAAMMDD-HHMMSS`).
+- **Arquivos do programa faltando:** baixe a Alicia de novo (seus dados não são afetados).
+
+## OCR (leitura de texto da tela)
+Usado pela Observadora e por "Alicia, olha". A escolha preferida é o **RapidOCR** (`rapidocr-onnxruntime`, só pip). O diagnóstico confere se o RapidOCR e o ONNX Runtime
+importam, se o motor inicia e se ele lê um texto de teste desenhado na memória (nunca sua tela); a captura de tela também é testada só em memória e descartada.
+Se o RapidOCR não funcionar no seu PC (por exemplo, Python muito novo), o iniciador **oferece**, com autorização, o **Tesseract** (programa externo, instalador visível) + `pytesseract` como alternativa;
+os dois nunca são instalados juntos sem necessidade. Sem nenhum OCR a Alicia abre normalmente e observa só a janela ativa. Recomendado: **Python 3.12 de 64 bits**.
+
+## Solução de problemas comuns
+| Sintoma | O que fazer |
+|---|---|
+| "Sem conexão com a internet" | conecte-se e rode `Iniciar_Alicia.bat --repair` |
+| Interface (PyQt6) não instala | use Python 3.11/3.12 **de 64 bits** |
+| Microfone não aparece | *Configurações do Windows → Privacidade → Microfone* e permita o acesso |
+| OCR com erro | `Diagnostico_Alicia.bat` mostra o motivo; `--repair` tenta corrigir |
+| Algo estranho no ambiente | `Iniciar_Alicia.bat --repair` (não apaga seus dados) |
+| Precisa pedir ajuda | envie `logs\instalacao_alicia.log` (sem dados pessoais) |
 
 ## Próximas vezes
-Dois cliques em `Iniciar_Alicia.bat`. Só instala o que faltar, não pede nome nem chave de novo.
+Dois cliques em `Iniciar_Alicia.bat`. Se tudo estiver certo, abre direto; só pergunta se algo faltar. Não pede nome nem chave de novo.
 
 ## Chave e configurações (`.env`)
 ```
@@ -38,7 +88,10 @@ Outros ajustes (timeouts, tamanho do histórico, resposta máxima, voz, microfon
 | `/backup` / `/exportar` | copia a memória / gera um .txt da conversa e das memórias (`backups\`, `exportacoes\`) |
 | `/ajuda` | lista os comandos |
 | `/descanso`, `/acordar`, `/gamer`, `sair` | modos e saída (como antes) |
-| `Alicia, olha a tela` | análise de tela (exige Ollama) |
+| `Alicia, olha a tela` | olha a tela agora e diz o que está vendo (visão local) |
+| `Alicia, observar minha tela` / `pare de observar` | liga/desliga a **Modo Observadora** (ou `/observar`, ou o botão 👁) |
+| `Alicia, o que estou fazendo?` | responde com o que viu na tela e há quanto tempo |
+| `Alicia, ativar modo sem filtro` / `voltar ao normal` | liga/desliga o **Modo Sem Filtro** (ou `/semfiltro`, ou o botão 🔥) |
 
 ## Personalidades
 Normal (o jeito original), Brincalhona, Séria, Malcriada (de brincadeira, nunca ofende de verdade) e Carinhosa. A escolha fica salva no banco e pode mudar a qualquer momento: só o *tom* muda, o histórico, as memórias e o assunto em andamento continuam iguais.
@@ -60,14 +113,51 @@ comandos "Alicia, olha/ver/olhar", captura de tela, visão, voz (você deve ouvi
 Variações: `Teste_Completo_Alicia.bat --sem-audio` (não toca nem grava) e `--rapido` (pula voz, microfone e visão).
 
 ## Visão (olhar a tela)
-"Alicia, olha" / "ver" / "olhar" (também "Alícia", com acento) inicia a análise na hora, mesmo com a observação espontânea desligada.
-Caminhos, nesta ordem: **Ollama local** (se instalado) → **modelo de visão da API da NVIDIA**, descoberto sozinho com um teste real.
-Comentários espontâneos e o modo gamer só usam o Ollama local (para não gastar a cota da API).
+"Alicia, olha" / "ver" / "olhar" (também "Alícia", com acento, e "olha minha tela") analisa a tela na hora, mesmo com a observadora desligada.
+**A análise é local:** janela ativa + captura + OCR + classificação (veja *Modo Observadora*). Um modelo de visão da NVIDIA fica só como **reserva**, usado apenas se a leitura local não entender nada **e** você autorizou o envio de imagens (`obs_allow_remote_vision`, desligado por padrão).
+
+## Modo Observadora
+Ela acompanha o que você faz no computador e comenta com contexto, tudo local. Nasce **desligada** e só liga com ativação explícita:
+botão **👁 Observadora** na janela (ou botão direito), voz ("Alicia, observar minha tela", "comece a observar") ou `/observar`.
+Desligar: botão, "Alicia, pare de observar" ou `/observar`. Um selo vermelho **● OBSERVANDO A TELA** fica visível enquanto ela estiver ligada.
+
+**Como funciona (cada ciclo, a cada `obs_interval` s):** lê a janela/processo ativo → se estiver na lista de privacidade, **nem captura** →
+captura o monitor da janela ativa → compara com o quadro anterior (quanto mudou) → OCR (no máximo a cada `obs_ocr_every` s) → descarta texto sensível
+(cartão válido, CPF, "senha:", chaves de API) → classifica a atividade (jogo, código, terminal, vídeo, navegação, chat...) → atualiza o **contexto visual
+temporário** (só RAM, apagado ao desligar; jogo → menu → jogo conta como a mesma atividade) → decide se fala.
+Ela só fala com motivo: atividade nova que se firmou (`obs_settle_seconds`), tempo longo na mesma coisa (`obs_long_activity_minutes`) ou evento na tela
+(erro, testes, vitória/derrota — o mesmo erro não é comentado duas vezes). Fica quieta enquanto você conversa, enquanto ela fala, no pôquer e no descanso,
+e respeita cooldown e limite por hora. Comentário que ficou velho esperando a vez é descartado.
+
+**Privacidade:** nenhuma imagem é gravada em disco nem enviada a serviço externo; o banco não recebe nada da observadora; a lista `obs_ignored_apps`/`obs_ignored_titles`
+(senhas, bancos, navegação anônima...) é editável. Se o cérebro (NVIDIA) escreve o comentário, recebe **só fatos abstratos** (categoria, nome do programa, minutos, tipo de evento),
+nunca título de janela, texto da tela ou imagem (`obs_use_brain_for_comments: false` mantém tudo local, com as falas de `observer_lines.py`).
+Atenção: a **voz** usa o Edge TTS (serviço da Microsoft), então o texto FALADO sai do PC como qualquer fala da Alicia.
+
+**OCR (opcional):** `pip install rapidocr-onnxruntime` (só pip, recomendado) ou Tesseract + `pytesseract`. Sem OCR ela continua funcionando só com janela ativa e imagem.
+
+## Modo Sem Filtro
+Uma **camada extra de personalidade** (rebelde, debochada, ácida, com palavrão e capacidade de devolver provocação), não uma segunda Alicia: mesma memória, voz, microfone e
+histórico. Ao ligar, o texto da camada é acrescentado ao contexto da resposta; ao desligar, deixa de ser. A personalidade original e a escolhida (normal, carinhosa...) nunca são alteradas.
+Liga/desliga por botão **🔥**, voz ("ativar modo sem filtro", "pode falar sem filtro", "hoje você está liberada"; "voltar ao normal" / "desativar modo sem filtro") ou `/semfiltro`.
+Funciona junto com a Observadora, no Modo Gamer e no pôquer (lá ela provoca nas apostas, mas só fala da mesa). Sempre começa desligado (`unf_remember_state` muda isso).
+Limites que ficam sempre (instruções ao modelo, não um filtro garantido): sem incentivo a violência, automutilação/suicídio, perseguição, ataques a características sensíveis,
+exposição de dados privados ou atividades perigosas. Se você falar de sofrimento real, ela troca a zoeira por acolhimento naquela resposta (essa detecção é por regras, não depende do modelo).
+
+## Como editar essas funções
+- **Todas as opções** ficam em `config.json` (gerado na primeira execução; feche a Alicia antes de editar): `obs_*` (observadora) e `unf_*` (sem filtro). As principais:
+  `obs_interval`, `obs_comment_cooldown`, `obs_event_cooldown`, `obs_max_comments_per_hour`, `obs_talkativeness`, `obs_change_threshold`, `obs_change_sensitivity`,
+  `obs_ignored_apps`, `obs_ignored_titles`, `obs_ocr`, `obs_ocr_every`, `obs_monitor`, `unf_sarcasm` (1–5), `unf_profanity` (0–5), `unf_fire_back`, `unf_custom_instructions`.
+- **Personalidade normal:** `BASE_PERSONALITY` e `PERSONALITIES` em `alicia_core/prompts.py`. **Personalidade sem filtro:** textos em `alicia_core/unfiltered.py`
+  (`UNFILTERED_CORE`, `LEVEL_SARCASM`, `LEVEL_PROFANITY`, `LIMITS`, `CONTEXT_*`, `CONFIRM_*`).
+- **Falas locais da observadora:** `alicia_core/observer_lines.py` (trechos `[[assim]]` são palavrão opcional, controlado por `unf_profanity`).
+- **Ensinar um programa/site novo:** `PROCESS_MAP` e `SITE_HINTS` em `alicia_core/local_vision.py`. **Eventos de tela:** `ERROR_PATTERNS`, `GAME_WIN`, `GAME_LOSE` no mesmo arquivo.
+- Arquivos: `local_vision.py` (visão), `observer.py` (modo, contexto, política), `unfiltered.py` (camada). Testes: `tests/test_observer.py` e `tests/test_unfiltered.py`.
 
 ## Logs e diagnóstico
 - Logs: `logs\alicia_system.log` (chaves são mascaradas). Nível: `ALICIA_LOG_LEVEL=DEBUG` no `.env`.
-- Diagnóstico completo: `Diagnostico_Alicia.bat` (Python, bibliotecas, banco, chave sem revelá-la, API, modelo, interface, áudio, Ollama).
-- Forçar reinstalação: `Iniciar_Alicia.bat --reinstall`.
+- Diagnóstico completo: `Diagnostico_Alicia.bat` (ambiente, bibliotecas, banco, chave sem revelá-la, API, modelo, interface, áudio, tela, OCR).
+- Instalação/reparo: `logs\\instalacao_alicia.log`. Reinstalar tudo: `Iniciar_Alicia.bat --reinstall`.
 
 ## Testes
 `python -m unittest discover -s tests -t .` (usa um servidor local falso; não prova a API real — para isso use o diagnóstico).
@@ -147,9 +237,14 @@ Ele recorta, tira o fundo verde, alinha os quadros, completa o corpo das linhas 
 ## Avatar
 As imagens ficam em `assets\` (`feliz`, `serio`, `surpresa`, `pensando`, `bravo`, mais `feliz_2` e `feliz_3`, que alternam sozinhas quando ela está feliz). Para trocar o visual, substitua os PNGs mantendo os nomes (fundo transparente).
 
-## Voz, visão e Ollama
+## Voz e visão
 Voz de saída: edge-tts gera a fala e o próprio Windows toca (sem pygame). Microfone: SpeechRecognition + **sounddevice** (traz o PortAudio junto; funciona em qualquer Python no Windows, sem PyAudio). Escolha o microfone no botão direito do avatar. Se o Windows bloquear, vá em *Configurações → Privacidade → Microfone* e permita o acesso. Se faltar alguma biblioteca, esse recurso fica desligado e o resto funciona.
-O **Ollama agora serve só à visão/modo gamer** (opcional). A conversa usa exclusivamente a NVIDIA.
+A conversa usa exclusivamente a API da NVIDIA; a Observadora é 100% local. No **Modo Gamer** a análise do jogo é **100% local** (nada sai do PC):
+- **Padrão (sem instalar nada):** lê o quadro com OCR + movimento, comenta **vitória/derrota** vistas na tela e marcos de tempo de jogo (`obs_long_activity_minutes`). Desligar: `gamer_local_analysis: false`.
+- **Modelo de visão local (opcional):** um modelo de IA que roda dentro do seu PC e *descreve* a cena do jogo. Instale com `Iniciar_Alicia.bat --vision-local`: ele explica o custo e pede autorização;
+  depois instala o `llama-cpp-python` na `.venv` (versão pronta para CPU, Python 3.10–3.12) e baixa o modelo **Qwen2.5-VL-3B** (≈ 3 GB, conferido por SHA-256) em `models\vision\`.
+  Usa 4–6 GB de RAM enquanto analisa e é descarregado da memória depois de 5 min parado (`local_vlm_idle_unload_s`). O diagnóstico completo testa o modelo com uma imagem desenhada na memória.
+  Ele também responde ao "Alicia, olha". A NVIDIA só é usada como reserva se **você** autorizar (`obs_allow_remote_vision`, desligado por padrão).
 
 ## Gerar .exe (opcional, não testado)
 Só depois de tudo funcionar: `.venv\Scripts\python -m pip install pyinstaller` e empacotar `main.py`.

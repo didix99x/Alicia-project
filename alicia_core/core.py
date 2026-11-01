@@ -22,9 +22,10 @@ from .database import MemoryDatabase, DatabaseUnavailable
 from .nvidia_client import NvidiaClient, BrainError, DEFAULT_BASE_URL
 from .env import load_env_file, set_env_value
 from .vision import VisionBackend
+from .observer import ObserverMode
+from .unfiltered import UnfilteredMode
 from .hardware import HardwareMonitor
 from .screen import ScreenAnalyzerEngine
-from .ollama_client import OllamaClient
 from .tts import TextToSpeechEngine
 from .prompts import PromptEngine
 from .voice_input import VoiceInputEngine
@@ -74,13 +75,11 @@ class AliciaAssistantCore(ConversationMixin):
         load_env_file(".env")
         self.config = SystemConfig(config_path)
         self.db = MemoryDatabase(self.config.db_path)
-        # Ollama: SOMENTE visão / modo gamer. A conversa usa a API NVIDIA.
-        self.client = OllamaClient(self.config.ollama_host)
         self.poker_active = False           # mesa de pôquer aberta: pausa comentários espontâneos, tela e modo gamer
         self.poker_chat_handler = None      # função(texto) -> (fala, expressão): conversa exclusiva da mesa (registrada pela janela)
         self.ui = None
-        self.vision_available = False       # pedidos diretos ("Alicia, olha")
-        self.vision_spontaneous = False     # comentários espontâneos / modo gamer (só com Ollama local)
+        self.vision_available = False       # pedidos diretos ("Alicia, olha"): modelo de visão remoto, só se autorizado
+        self.vision_spontaneous = False     # análise automática do Modo Gamer (local: OCR + quadros); ligada em _maybe_recheck_vision
         self._last_vision_recheck = 0.0
         self.nvidia = NvidiaClient(
             api_key=os.environ.get('NVIDIA_API_KEY', ''),
@@ -149,8 +148,18 @@ class AliciaAssistantCore(ConversationMixin):
         self.last_visual_context = ""
         self._init_conversation()
         self.brain.on_model_change = self._persist_model
-        self.vision = VisionBackend(self.client, self.config, self.nvidia)
+        self.vision = VisionBackend(self.config, self.nvidia)
         self.vision.on_model_change = lambda m: set_env_value(".env", "NVIDIA_VISION_MODEL", m)
+
+        # ------------------------- Modos novos ---------------------------
+        # Sem Filtro = camada extra de personalidade (não substitui nada). Observadora = visão local (OCR + janela ativa).
+        self.unfiltered = UnfilteredMode(self.config)
+        try:
+            if bool(self.config.unf_remember_state) and self.db.get_profile("unfiltered_mode") == "1":
+                self.unfiltered.set_enabled(True)
+        except Exception as e:
+            logger.warning(f"Não consegui restaurar o Modo Sem Filtro: {e}")
+        self.observer = ObserverMode(self)        # sempre nasce DESLIGADA: precisa de ativação explícita
 
         logger.info("🧠 Cérebro cognitivo da Alicia inicializado.")
 
@@ -546,9 +555,29 @@ class AliciaAssistantCore(ConversationMixin):
         self,
         user_message: str
     ) -> Tuple[str, AliciaExpression, bool]:
+        """'Alicia, olha': primeiro a visão LOCAL (OCR + janela ativa). O modelo de visão remoto (NVIDIA) só entra
+        como reserva quando a leitura local não entendeu nada E o envio remoto foi autorizado
+        (obs_allow_remote_vision)."""
+        text, expr, ok = self.observer.analyze_now(user_message)
+        if ok:
+            self.last_visual_context = text
+            self._remember_vision_comment(text)
+            self.current_expression = expr
+            return text, expr, True
+        if self.vision_available or self.vision.allow_remote:
+            alt = self._analyze_screen_via_vlm(user_message)
+            if alt[2]:
+                return alt
+            return f"{text} {alt[0]}".strip(), expr, False
+        return text, expr, False
+
+    def _analyze_screen_via_vlm(
+        self,
+        user_message: str
+    ) -> Tuple[str, AliciaExpression, bool]:
         if not self.vision_available and not self._prepare_vision_now():
             return (
-                "Meu módulo de visão não está disponível: nem o Ollama local nem um modelo de visão da NVIDIA responderam. Rode Diagnostico_Alicia.bat.",
+                "Meu módulo de visão não está disponível: nenhum modelo de visão da NVIDIA respondeu (o envio de imagens precisa estar autorizado). Rode Diagnostico_Alicia.bat.",
                 AliciaExpression.SERIO,
                 False
             )
@@ -594,9 +623,7 @@ class AliciaAssistantCore(ConversationMixin):
                 options={
                     "temperature": 0.75,
                     "top_p": 0.92,
-                    "num_predict": 100,
-                    "repeat_penalty": 1.2,
-                    "repeat_last_n": 192
+                    "max_tokens": 100
                 },
                 timeout=90
             )
@@ -672,14 +699,15 @@ class AliciaAssistantCore(ConversationMixin):
     def _speak_async(
         self,
         text: str,
-        expression: AliciaExpression
+        expression: AliciaExpression,
+        should_play=None
     ):
         if not text or not self.config.enable_audio:
             return
 
         threading.Thread(
             target=self.tts.speak,
-            args=(text, expression),
+            args=(text, expression, should_play),
             daemon=True,
             name="AliciaTTS"
         ).start()
@@ -893,7 +921,7 @@ class AliciaAssistantCore(ConversationMixin):
             "youtube", "chrome", "google chrome", "microsoft edge",
             "firefox", "visual studio code", "pycharm", "terminal",
             "powershell", "cmd", "prompt de comando", "steam",
-            "epic games", "battle.net", "riot client", "ollama", "comfyui"
+            "epic games", "battle.net", "riot client", "comfyui"
         )
 
         if any(item in title_lower for item in ignored_windows):
@@ -1239,7 +1267,7 @@ Regras:
         if cached:
             self.gamer_current_profile = cached
         else:
-            # Não bloqueie a entrada no Gamer esperando o Ollama.
+            # Não bloqueie a entrada no Gamer esperando o perfil ser carregado.
             self.gamer_current_profile = self._empty_gamer_profile(normalized)
 
             with self.gamer_profile_lock:
@@ -1508,6 +1536,7 @@ Alterne entre reação genuína, provocação, observação tática, humor e ten
 Uma dica só deve aparecer quando houver algo concreto na tela.
 Não dê tutorial espontâneo.
 {PromptEngine.style_line(self.get_personality()) if self.get_personality() != PromptEngine.DEFAULT_PERSONALITY else ""}
+{self.unfiltered.overlay("gamer").system}
 
 Se nada valer a pena:
 VAZIO
@@ -1613,37 +1642,33 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
             self.gamer_last_process_seen_time = now
             self.gamer_last_game_window_seen_time = now
 
-        prompt = self._build_gamer_analysis_prompt(
-            snapshot,
-            evento_importante
-        )
-
-        raw_response = self.vision.generate(
+        # Análise 100% LOCAL (nada sai do computador):
+        #  1) se o modelo de visão local estiver instalado, ele descreve o quadro do jogo;
+        #  2) senão (ou se ele não responder), leitura local: janela + OCR + movimento (vitória/derrota e marcos de tempo).
+        clean_text, expr = "", None
+        if self.vision.local.available:
+            prompt = self._build_gamer_analysis_prompt(snapshot, evento_importante)
+            raw_response = self.vision.local.generate(
                 prompt, b64_img,
-                options={
-                "temperature": 0.82 if evento_importante else 0.72,
-                "top_p": 0.92,
-                "num_predict": 100,
-                "repeat_penalty": 1.28,
-                "repeat_last_n": 256
-            },
-            timeout=int(self.config.gamer_vision_timeout)
-        )
+                options={"temperature": 0.82 if evento_importante else 0.72, "top_p": 0.92, "max_tokens": 100},
+                timeout=int(self.config.gamer_vision_timeout)
+            )
+            if raw_response and raw_response.strip().upper() != "VAZIO":
+                clean_text, expr = self.parse_expression_tags(raw_response)
+                clean_text = self._limit_response_length(clean_text, max_sentences=2, max_chars=260)
+                if clean_text.upper() == "VAZIO":
+                    clean_text = ""
+        if not clean_text:
+            minutes = max(0.0, (now - self.gamer_last_game_change_time) / 60.0)
+            local = self.observer.gamer_comment(current_pil, self.gamer_current_game, minutes)
+            if local:
+                clean_text, expr, _reading = local
+                clean_text = self._limit_response_length(clean_text, max_sentences=2, max_chars=260)
 
         self.gamer_last_analysis_time = time.time()
         self.gamer_analysis_count += 1
 
-        if not raw_response or raw_response.strip().upper() == "VAZIO":
-            return
-
-        clean_text, expr = self.parse_expression_tags(raw_response)
-        clean_text = self._limit_response_length(
-            clean_text,
-            max_sentences=2,
-            max_chars=260
-        )
-
-        if not clean_text or clean_text.upper() == "VAZIO":
+        if not clean_text:
             return
 
         if self.poker_active:        # a mesa abriu enquanto a análise rodava: não fala por cima da partida
@@ -1841,12 +1866,6 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
         )
 
     # ==========================================================================
-    # OLLAMA
-    # ==========================================================================
-
-
-
-    # ==========================================================================
     # LOOP DE VISÃO
     # ==========================================================================
 
@@ -1976,8 +1995,12 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
                     continue
 
                 # ==============================================================
-                # 4. VISÃO GERAL
+                # 4. VISÃO GERAL (laço antigo; ligava sem pedir).
+                #    Foi substituído pelo Modo Observadora. Para reativar: "legacy_screen_comments": true.
                 # ==============================================================
+                if not self.config.legacy_screen_comments:
+                    time.sleep(0.35)
+                    continue
                 intervalo = max(1.0, float(self.config.screen_interval))
 
                 if now - self.last_screen_check_time < intervalo:
@@ -2028,9 +2051,7 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
                 options={
                         "temperature": 0.78,
                         "top_p": 0.92,
-                        "num_predict": 80,
-                        "repeat_penalty": 1.22,
-                        "repeat_last_n": 192
+                        "max_tokens": 80
                     },
                     timeout=70
                 )
@@ -2124,6 +2145,10 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
     # START
     # ==========================================================================
 
+    def get_table_personality(self) -> str:
+        """Personalidade das falas PRONTAS do pôquer. Com o Sem Filtro ligado usa o repertório 'malcriada' (o mais atrevido)."""
+        return "malcriada" if self.unfiltered.enabled else self.get_personality()
+
     def open_poker(self) -> bool:
         """Pede à interface (thread principal) para abrir o minigame. Seguro de chamar de qualquer thread."""
         ui = getattr(self, "ui", None)
@@ -2141,25 +2166,25 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
         set_env_value(".env", "NVIDIA_MODEL", model)
 
     # ==========================================================================
-    # VISÃO (Ollama opcional)
+    # VISÃO (modelo remoto opcional, só com autorização)
     # ==========================================================================
 
     def _maybe_recheck_vision(self):
-        """A cada 60 s reavalia o Ollama local (visão preferida). Sem spam de erros."""
+        """A cada 60 s reaproveita o modelo de visão remoto já descoberto (se o envio foi autorizado)
+        e confirma que a análise LOCAL do Modo Gamer pode rodar."""
         now = time.time()
         if now - self._last_vision_recheck < 60.0:
             return
         self._last_vision_recheck = now
         was = self.vision.backend
-        ollama_ok = bool(self.config.vision_enabled) and self.client.check_health()
-        if ollama_ok:
-            ollama_ok = self._ensure_vision_model(self.client.list_models())
-        self.vision.use_ollama = ollama_ok
-        if not ollama_ok and self.vision.remote is None and os.environ.get("NVIDIA_VISION_MODEL"):
+        self.vision.local.maybe_unload_idle()
+        if self.vision.allow_remote and self.vision.remote is None and os.environ.get("NVIDIA_VISION_MODEL"):
             # modelo de visão já descoberto antes: reaproveita sem testar de novo
             self.vision.remote = self.vision._new_remote(os.environ["NVIDIA_VISION_MODEL"])
         self.vision_available = self.vision.available
-        self.vision_spontaneous = ollama_ok
+        # Modo Gamer: análise local (OCR + quadros). Precisa só do NumPy; o OCR melhora, mas não é obrigatório.
+        from .local_vision import np as _np
+        self.vision_spontaneous = _np is not None and bool(getattr(self.config, "gamer_local_analysis", True))
         if self.vision.backend != was and self.vision.backend:
             logger.info(f"👁️ Visão disponível via {self.vision.backend}.")
 
@@ -2171,22 +2196,6 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
         self.vision_available = self.vision.available
         return self.vision_available
 
-    def _ensure_vision_model(self, modelos_instalados: List[str]) -> bool:
-        """Confere se o modelo de visão do Ollama está instalado; senão usa outro de visão que exista."""
-        if not modelos_instalados:
-            return False
-        configurado = (self.config.vision_model or "").lower()
-        if any(m == configurado or m.startswith(configurado) for m in modelos_instalados):
-            return True
-        palavras = ("vl", "vision", "llava", "moondream", "minicpm-v")
-        preferidos = [m for m in modelos_instalados if any(p in m for p in palavras)]
-        if not preferidos:
-            logger.warning(f"⚠️ Modelo de visão '{configurado}' não instalado no Ollama. Rode: ollama pull {configurado}")
-            return False
-        logger.warning(f"➡️ Modelo de visão '{configurado}' não instalado; usando '{preferidos[0]}' nesta sessão.")
-        self.config.vision_model = preferidos[0]
-        return True
-
     # ==========================================================================
     # PRÉ-REQUISITOS
     # ==========================================================================
@@ -2194,7 +2203,7 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
     def check_prerequisites(self) -> bool:
         """
         Essencial: chave/modelo da NVIDIA configurados e banco íntegro.
-        Opcional: Ollama (só visão e modo gamer).
+        Opcional: modelo de visão remoto (só se o envio de imagens estiver autorizado).
         """
         if not self.nvidia.has_key:
             logger.error("❌ NVIDIA_API_KEY não configurada. Preencha o arquivo .env (veja .env.example).")
@@ -2214,8 +2223,6 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
             logger.warning(f"Backup automático falhou (a conversa segue normal): {e}")
         self._last_vision_recheck = 0.0
         self._maybe_recheck_vision()
-        if not self.vision_available:
-            logger.warning("⚠️ Ollama indisponível: comentários espontâneos e modo gamer ficam desligados; \"Alicia, olha\" usará um modelo de visão da NVIDIA, se houver.")
         return True
 
     # ==========================================================================
@@ -2323,6 +2330,10 @@ Depois escreva no máximo 2 frases curtas, naturais e faláveis.
             logger.exception(f"❌ Erro na interface da Alicia: {type(e).__name__}")
         finally:
             self.is_running = False
+            try:
+                self.observer.stop()
+            except Exception:
+                pass
             try:
                 self.voice_input.stop_listening()
             except Exception:

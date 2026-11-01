@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Dict
 
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
 from PyQt6.QtGui import QPixmap, QAction, QImage, QPainter
-from PyQt6.QtWidgets import QApplication, QLabel, QMenu, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QMenu, QPushButton, QWidget
 
 from ..audio_input import list_microphones
 from ..deps import Image, sr, HAS_SPEECH, HAS_MIC, MIC_ERROR
@@ -68,6 +68,7 @@ class AliciaDesktopPetUI(QWidget):
         self.label_avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.carregar_imagens_avatar()
+        self._build_mode_controls()
         self.atualizar_visual()
 
         self.timer = QTimer(self)
@@ -77,6 +78,70 @@ class AliciaDesktopPetUI(QWidget):
 
         screen = QApplication.primaryScreen().availableGeometry()
         self.move(screen.width() - 530, screen.height() - 570)
+
+    # ------------------------------------------------------------------
+    # BOTÕES DOS MODOS (Observadora / Sem Filtro) e indicador de privacidade
+    # ------------------------------------------------------------------
+    _BTN_OFF = ("QPushButton { background: rgba(30,30,35,190); color: #cfcfcf; border: 1px solid #666; "
+                "border-radius: 8px; padding: 4px; font-size: 12px; }")
+    _BTN_ON = ("QPushButton { background: rgba(20,120,60,220); color: white; border: 1px solid #5f5; "
+               "border-radius: 8px; padding: 4px; font-size: 12px; font-weight: bold; }")
+    _BTN_ON_UNF = ("QPushButton { background: rgba(170,40,40,225); color: white; border: 1px solid #f77; "
+                   "border-radius: 8px; padding: 4px; font-size: 12px; font-weight: bold; }")
+
+    def _build_mode_controls(self):
+        self.btn_obs = QPushButton("👁 Observadora: OFF", self)
+        self.btn_obs.setGeometry(330, 8, 165, 30)
+        self.btn_obs.clicked.connect(self.alternar_observadora)
+        self.btn_unf = QPushButton("🔥 Sem filtro: OFF", self)
+        self.btn_unf.setGeometry(330, 44, 165, 30)
+        self.btn_unf.clicked.connect(self.alternar_sem_filtro)
+        # indicador SEMPRE visível enquanto a tela está sendo observada
+        self.lbl_observando = QLabel("● OBSERVANDO A TELA", self)
+        self.lbl_observando.setGeometry(8, 8, 180, 26)
+        self.lbl_observando.setStyleSheet("background: rgba(190,30,30,225); color: white; border-radius: 8px; "
+                                          "padding: 2px 8px; font-size: 12px; font-weight: bold;")
+        self.lbl_observando.hide()
+        self._modes_seen = (None, None)
+        self._refresh_mode_controls()
+
+    def _modos_estado(self):
+        obs = bool(getattr(getattr(self.core, "observer", None), "active", False))
+        unf = bool(getattr(getattr(self.core, "unfiltered", None), "enabled", False))
+        return obs, unf
+
+    def _refresh_mode_controls(self):
+        if not hasattr(self, "btn_obs"):            # janela montada sem os botões (ex.: testes)
+            return
+        estado = self._modos_estado()
+        if estado == getattr(self, "_modes_seen", None):
+            return
+        self._modes_seen = estado
+        obs, unf = estado
+        self.btn_obs.setText("👁 Observadora: ON" if obs else "👁 Observadora: OFF")
+        self.btn_obs.setStyleSheet(self._BTN_ON if obs else self._BTN_OFF)
+        self.btn_unf.setText("🔥 Sem filtro: ON" if unf else "🔥 Sem filtro: OFF")
+        self.btn_unf.setStyleSheet(self._BTN_ON_UNF if unf else self._BTN_OFF)
+        if obs:
+            self.lbl_observando.show()
+        else:
+            self.lbl_observando.hide()
+
+    def alternar_observadora(self, *_):
+        try:
+            msg = self.core.set_observer(not self.core.observer.active)
+            print(f"\n👁️ {msg}")
+        except Exception as e:
+            logger.exception(f"Falha ao alternar a Observadora: {e}")
+        self._refresh_mode_controls()
+
+    def alternar_sem_filtro(self, *_):
+        try:
+            msg = self.core.set_unfiltered(not self.core.unfiltered.enabled)
+            print(f"\n🔥 {msg}")
+        except Exception as e:
+            logger.exception(f"Falha ao alternar o Modo Sem Filtro: {e}")
+        self._refresh_mode_controls()
 
     def carregar_imagens_avatar(self):
         self.variantes: Dict[AliciaExpression, list] = {}
@@ -231,6 +296,7 @@ class AliciaDesktopPetUI(QWidget):
         return False
 
     def atualizar_visual(self):
+        self._refresh_mode_controls()
         agora = time.monotonic()
         expr_alvo = AliciaExpression.SERIO if self.core.modo_descanso else self.core.current_expression
 
@@ -331,7 +397,11 @@ class AliciaDesktopPetUI(QWidget):
             )
         )
 
-        screen_action = menu.addAction('Observação de Tela: ' + ('Ligada' if self.core.screen_watch_enabled else 'Desligada'))
+        obs_on, unf_on = self._modos_estado()
+        menu.addAction('👁 Observadora: ' + ('Desligar' if obs_on else 'Ligar')).triggered.connect(self.alternar_observadora)
+        menu.addAction('🔥 Modo Sem Filtro: ' + ('Desligar' if unf_on else 'Ligar')).triggered.connect(self.alternar_sem_filtro)
+        menu.addSeparator()
+        screen_action = menu.addAction('Observação de Tela (Modo Gamer): ' + ('Ligada' if self.core.screen_watch_enabled else 'Desligada'))
         screen_action.triggered.connect(lambda: setattr(self.core, 'screen_watch_enabled', not self.core.screen_watch_enabled))
         
         menu.addSeparator()

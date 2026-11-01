@@ -102,7 +102,11 @@ class PokerTalk:
     }
     SAFE_CHAT_DEFAULT = "Hm, nessa eu prefiro deixar as cartas falarem. Bora jogar."
 
-    def __init__(self, client, personality_getter=lambda: "normal", name_getter=lambda: "", temperature: float = 0.9):
+    def __init__(self, client, personality_getter=lambda: "normal", name_getter=lambda: "", temperature: float = 0.9,
+                 overlay_getter=None):
+        # overlay_getter(user_text) -> texto da camada extra (Modo Sem Filtro) ou "" — sempre dentro do contexto da mesa
+        self.overlay_getter = overlay_getter
+        self._user_text = ""
         self.client = client
         self.personality = personality_getter
         self.name = name_getter
@@ -127,7 +131,15 @@ class PokerTalk:
         key = self.personality()
         style = PromptEngine.PERSONALITIES.get(key, PromptEngine.PERSONALITIES[PromptEngine.DEFAULT_PERSONALITY])["style"]
         nome = (self.name() or "").strip() or "o jogador"
-        return SYSTEM.format(nome=nome, estilo=style)
+        base = SYSTEM.format(nome=nome, estilo=style)
+        if self.overlay_getter:
+            try:
+                extra = self.overlay_getter(self._user_text)
+            except Exception:
+                extra = ""
+            if extra:
+                base += "\n\n" + extra
+        return base
 
     def _messages(self, context: str, user_content: str):
         msgs = [{"role": "system", "content": self.system_prompt() + "\n\n[ESTADO DA MESA]\n" + (context or "A mão ainda não começou.")}]
@@ -151,6 +163,7 @@ class PokerTalk:
     def chat(self, user_text: str, context: str) -> Tuple[str, str]:
         """Responde ao jogador. Devolve (fala, rosto). Levanta BrainError se a API falhar (quem chama decide o aviso)."""
         content = f"{(self.name() or 'O jogador').strip()} diz: {user_text}"
+        self._user_text = user_text
         allowed = (context, user_text)
         text, expr = "", None
         for attempt in range(2):
@@ -173,6 +186,7 @@ class PokerTalk:
     # ------------------------------------------------------------------ reação a um acontecimento
     def narrate(self, facts: str, context: str, state: str = "neutral") -> Optional[Tuple[str, str]]:
         """Fala curta sobre um acontecimento real. Devolve (fala, rosto) ou None (a fala pronta assume)."""
+        self._user_text = ""
         content = (f"ACONTECEU AGORA: {facts}\n"
                    f"Reaja a isso em UMA frase curta, no seu estilo, com humor {STATE_LABEL.get(state, 'neutro')}. "
                    "Comente só o que aconteceu; não faça pergunta fora da partida.")

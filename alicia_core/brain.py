@@ -84,6 +84,7 @@ class ConversationBrain:
         now: Optional[datetime] = None,
         personality: str = "normal",
         call_context: str = "",
+        overlay=None,
     ) -> List[Dict[str, str]]:
         """Monta a lista de mensagens (já normalizada). NÃO inclui a mensagem atual no histórico duas vezes."""
         limit = int(getattr(self.config, "brain_history_messages", 20))
@@ -100,6 +101,7 @@ class ConversationBrain:
             personality=personality,
             avoid_openers=self._recent_openers(history),
             call_context=call_context,
+            extra_layer=(overlay.system if overlay else ""),
         )
         messages: List[Dict[str, str]] = [{"role": "system", "content": system}]
         history = self._history_for_style(history)
@@ -114,6 +116,8 @@ class ConversationBrain:
         current = user_message
         if personality and personality != PromptEngine.DEFAULT_PERSONALITY:
             current = f"{user_message}\n\n{PromptEngine.style_reminder(personality)}"
+        if overlay and overlay.reminder:
+            current = f"{current}\n\n{overlay.reminder}"
         messages.append({"role": "user", "content": current})
         return normalize_messages(messages)
 
@@ -151,11 +155,11 @@ class ConversationBrain:
             return history
         return before[-2:] + after
 
-    def reply(self, user_message: str, user_name: str, visual_context: str = "", call_context: str = "") -> str:
+    def reply(self, user_message: str, user_name: str, visual_context: str = "", call_context: str = "", overlay=None) -> str:
         """Texto bruto do modelo (com tag de expressão). Levanta BrainError."""
         personality = self.db.get_profile("personality") or PromptEngine.DEFAULT_PERSONALITY
         messages = self.build_messages(user_message, user_name, visual_context, personality=personality,
-                                       call_context=call_context)
+                                       call_context=call_context, overlay=overlay)
         kwargs = dict(
             temperature=float(getattr(self.config, "brain_temperature", 0.8)),
             top_p=float(getattr(self.config, "brain_top_p", 0.9)),

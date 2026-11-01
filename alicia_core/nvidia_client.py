@@ -14,7 +14,7 @@ Garantias deste módulo:
   * Erros de autenticação / requisição inválida / modelo inexistente
     NÃO são repetidos.
   * Resposta vazia ou malformada vira BrainError (nunca texto vazio).
-  * Não mistura formatos de outros provedores (sem Ollama aqui).
+  * Não mistura formatos de outros provedores.
 """
 
 from __future__ import annotations

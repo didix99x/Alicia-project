@@ -1,5 +1,5 @@
 """
-Construtor dos prompts: personalidade, chat (API NVIDIA) e visão (Ollama).
+Construtor dos prompts: personalidade, chat (API NVIDIA) e visão.
 """
 
 import random
@@ -621,6 +621,7 @@ Não explique o raciocínio.
         personality: str = "normal",
         avoid_openers: Optional[List[str]] = None,
         call_context: str = "",
+        extra_layer: str = "",
     ) -> str:
         name_line = (
             f"O usuário quer ser chamado de {user_name}. Use o nome com naturalidade, sem repeti-lo em toda frase."
@@ -657,6 +658,8 @@ Não explique o raciocínio.
             blocks.append(f"[ABERTURAS PARA NÃO REPETIR]\nSuas últimas respostas começaram com: {usados}. "
                           "Comece esta de outro jeito (outra palavra, outra reação, ou direto no assunto).")
         blocks.append(style_block)
+        if extra_layer:                       # camada opcional (ex.: Modo Sem Filtro): vem por ÚLTIMO e vale mais
+            blocks.append(extra_layer)
         return "\n\n".join(blocks)
 
     @classmethod

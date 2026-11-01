@@ -7,3 +7,7 @@ mss>=9.0                  # visão: captura de tela rápida (há alternativa com
 psutil>=5.9               # modo gamer: detecção de processos
 soundcard>=0.4.3        # modo call no Windows: captura o áudio que sai do PC (loopback WASAPI)
 numpy>=1.24               # modo call no Windows: conversão do áudio capturado
+
+# Modo Observadora: leitura de texto da tela (OCR), 100% local. O iniciador instala UM (RapidOCR):
+rapidocr-onnxruntime>=1.3.0
+# Alternativa ao RapidOCR, só se ele não funcionar no seu PC (exige o programa Tesseract; o iniciador oferece, com sua autorização): pytesseract>=0.3.10

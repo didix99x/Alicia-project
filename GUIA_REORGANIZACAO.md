@@ -1,4 +1,4 @@
-> **Nota:** este guia descreve a estrutura anterior (Ollama no chat). Para o fluxo atual, leia README.md.
+> **Nota:** este guia descreve a estrutura original do projeto. Para o fluxo atual, leia README.md.
 
 # Guia de reorganização — `assistente.py` → pacote Python
 
@@ -39,7 +39,6 @@ O topo do arquivo já separa bem duas coisas:
 | 8 | `MemoryDatabase` | classe | 67 | — |
 | 9 | `HardwareMonitor` | classe | 91 | `HardwareSnapshot` |
 | 10 | `ScreenAnalyzerEngine` | classe | 61 | — |
-| 11 | `OllamaClient` | classe | 68 | — |
 | 12 | `TextToSpeechEngine` | classe | 88 | `AliciaExpression` |
 | 13 | `PromptEngine` | classe | 480 | `HardwareSnapshot` |
 | 14 | `VoiceInputEngine` | classe | 326 | `AliciaAssistantCore` (só como *type hint*) |
@@ -103,7 +102,6 @@ alicia/
     ├── database.py              # MemoryDatabase
     ├── hardware.py              # HardwareMonitor
     ├── screen.py                # ScreenAnalyzerEngine
-    ├── ollama_client.py         # OllamaClient
     ├── tts.py                   # TextToSpeechEngine
     ├── prompts.py                # PromptEngine
     ├── voice_input.py            # VoiceInputEngine
@@ -125,7 +123,6 @@ alicia/
 | `alicia_core/database.py` | `MemoryDatabase` |
 | `alicia_core/hardware.py` | `HardwareMonitor` |
 | `alicia_core/screen.py` | `ScreenAnalyzerEngine` |
-| `alicia_core/ollama_client.py` | `OllamaClient` |
 | `alicia_core/tts.py` | `TextToSpeechEngine` |
 | `alicia_core/prompts.py` | `PromptEngine` |
 | `alicia_core/voice_input.py` | `VoiceInputEngine` |
@@ -247,7 +244,6 @@ precisa mudar, porque nada nelas usa import relativo implícito.
 | `database.py` | `import sqlite3, json, time`<br>`from typing import Any, Dict, List, Optional`<br>`from .logging_setup import logger` |
 | `hardware.py` | `import sys`<br>`from .deps import psutil, HAS_PSUTIL, HAS_WIN32, user32 (se HAS_WIN32)`<br>`from .models import HardwareSnapshot`<br>`from .logging_setup import logger` |
 | `screen.py` | `import io, hashlib`<br>`from .deps import Image, ImageChops, ImageGrab, ImageStat, mss, HAS_MSS`<br>`from .logging_setup import logger` |
-| `ollama_client.py` | `import json`<br>`from .deps import requests`<br>`from typing import Any, Dict, List, Optional`<br>`from .logging_setup import logger` |
 | `tts.py` | `import asyncio, tempfile, threading, re`<br>`from .deps import pygame, edge_tts`<br>`from .enums import AliciaExpression`<br>`from .logging_setup import logger` |
 | `prompts.py` | `from typing import Any, Dict, List`<br>`from .models import HardwareSnapshot` |
 | `voice_input.py` | `import time, threading`<br>`from __future__ import annotations` (para o type hint)<br>`from .deps import sr, HAS_SPEECH`<br>`from .logging_setup import logger` |
@@ -272,7 +268,6 @@ from .config import SystemConfig
 from .database import MemoryDatabase
 from .hardware import HardwareMonitor
 from .screen import ScreenAnalyzerEngine
-from .ollama_client import OllamaClient
 from .tts import TextToSpeechEngine
 from .prompts import PromptEngine
 from .voice_input import VoiceInputEngine

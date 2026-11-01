@@ -1,12 +1,12 @@
 """
-Visão da Alicia: um único ponto de entrada com DOIS caminhos.
+Visão por modelo (VLM) da Alicia, em ordem de preferência:
+  1. Modelo LOCAL (local_vlm.py): roda no seu computador, nada é enviado. Opcional.
+  2. API da NVIDIA com um modelo que aceite imagens: RESERVA, SOMENTE se o envio de imagens foi autorizado
+     (config obs_allow_remote_vision, desligado por padrão).
+O modelo é descoberto testando de verdade uma imagem pequena; o resultado fica em NVIDIA_VISION_MODEL no .env.
+O olhar principal da Alicia é local (OCR + janela ativa) e vive em local_vision.py / observer.py.
 
-  1. Ollama local (preferido: grátis, privado, sem internet).
-  2. API da NVIDIA com um modelo que aceite imagens (usado quando o Ollama não está disponível).
-     O modelo é descoberto testando de verdade uma imagem pequena; o resultado fica em
-     NVIDIA_VISION_MODEL no .env.
-
-`generate()` recebe as mesmas opções no estilo Ollama que o código antigo usava.
+`generate()` recebe as opções de amostragem (temperature, top_p, max_tokens).
 Nunca levanta exceção: devolve None se nenhum caminho responder (o chamador mostra a mensagem).
 """
 
@@ -18,6 +18,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from .local_vlm import LocalVlm
 from .logging_setup import logger
 from .nvidia_client import (
     BrainError, GOOD_FAMILIES, NvidiaClient,
@@ -52,23 +53,24 @@ def _data_url(b64: str) -> str:
 
 
 class VisionBackend:
-    def __init__(self, ollama, config, nvidia: NvidiaClient):
-        self.ollama = ollama
+    def __init__(self, config, nvidia: NvidiaClient, local: Optional[LocalVlm] = None):
         self.config = config
         self.nvidia = nvidia
-        self.use_ollama = False
+        self.local = local or LocalVlm(config)          # modelo de visão LOCAL (opcional, privado)
         self.remote: Optional[NvidiaClient] = None     # cliente já validado com modelo de visão
         self._discovery_done_at = 0.0
         env_model = os.environ.get("NVIDIA_VISION_MODEL", "").strip()
         self._env_model = env_model
         self.on_model_change = None
+        # Privacidade: sem autorização (config obs_allow_remote_vision) nenhuma imagem de tela vai para a NVIDIA.
+        self.allow_remote = bool(getattr(config, "obs_allow_remote_vision", False))
 
     # ------------------------------------------------------------------
     @property
     def backend(self) -> Optional[str]:
-        if self.use_ollama:
-            return "ollama"
-        if self.remote is not None:
+        if self.local.available:
+            return "local"
+        if self.remote is not None and self.allow_remote:
             return "nvidia"
         return None
 
@@ -103,7 +105,7 @@ class VisionBackend:
 
     def discover_remote(self, time_budget: float = 90.0) -> bool:
         """Testa modelos de visão da NVIDIA com uma imagem real. Guarda o primeiro que responder."""
-        if not self.nvidia.has_key:
+        if not self.nvidia.has_key or not self.allow_remote:
             return False
         self._discovery_done_at = time.time()
         try:
@@ -138,12 +140,15 @@ class VisionBackend:
     # ------------------------------------------------------------------
     def generate(self, prompt: str, image_b64: str, options: Optional[Dict] = None, timeout: int = 75) -> Optional[str]:
         options = options or {}
-        if self.use_ollama:
-            text = self.ollama.generate(model=self.config.vision_model, prompt=prompt, images=[image_b64],
-                                        options=options, timeout=timeout)
+        if self.local.available:                         # 1º o modelo local: nada sai do computador
+            text = self.local.generate(prompt, image_b64, options, timeout)
             if text:
                 return text
-            logger.warning("Visão: o Ollama não respondeu; tentando a API da NVIDIA.")
+            if not self.allow_remote:
+                return None
+            logger.warning("Visão: o modelo local não respondeu; tentando a API da NVIDIA (envio autorizado).")
+        if not self.allow_remote:
+            return None
         if self.remote is None and self.nvidia.has_key and time.time() - self._discovery_done_at > 1800:
             self.discover_remote(time_budget=60.0)
         if self.remote is not None:
@@ -153,7 +158,7 @@ class VisionBackend:
                     self._messages(prompt, image_b64),
                     temperature=float(options.get("temperature", 0.75)),
                     top_p=float(options.get("top_p", 0.92)),
-                    max_tokens=max(int(options.get("num_predict", 100)) * 2, 160),
+                    max_tokens=max(int(options.get("max_tokens", 100)) * 2, 160),
                 )
             except BrainError as e:
                 logger.error(f"Visão (NVIDIA) falhou: {e.kind}")

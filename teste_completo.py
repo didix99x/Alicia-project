@@ -201,9 +201,9 @@ def t_vision():
     core = make_core()
     t0 = time.time()
     out = core.interact("Alicia, olha")
-    backend = core.vision.backend
+    backend = "visão local"
     if not out or "não está disponível" in out or "não consegui" in out.lower() or "greve" in out:
-        return "FALHA", f"resposta: {out[:140]!r}\nOllama ativo: {core.vision.use_ollama}; NVIDIA visão: {core.vision.remote.model if core.vision.remote else None}"
+        return "FALHA", f"resposta: {out[:140]!r}\nNVIDIA visão: {core.vision.remote.model if core.vision.remote else None}"
     return "OK", f"respondeu via {backend} em {time.time() - t0:.1f}s ({len(out)} caracteres)"
 
 

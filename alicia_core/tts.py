@@ -102,15 +102,27 @@ class TextToSpeechEngine:
         if last:
             raise last
 
+    @staticmethod
+    def _still_wanted(fn) -> bool:
+        try:
+            return bool(fn())
+        except Exception:
+            return False
+
     def speak(
         self,
         text: str,
-        expression: AliciaExpression = AliciaExpression.FELIZ
+        expression: AliciaExpression = AliciaExpression.FELIZ,
+        should_play=None
     ):
+        """`should_play` (opcional): função sem argumentos; se devolver False, a fala é descartada (comentário
+        que ficou velho esperando a vez). É checada ao pegar a vez e de novo antes de tocar."""
         if not self.enabled or not text:
             return
 
         with self._speak_lock:
+            if should_play is not None and not self._still_wanted(should_play):
+                return
             self.is_speaking = True
             temp_path = None
 
@@ -134,6 +146,8 @@ class TextToSpeechEngine:
                     os.path.exists(temp_path)
                     and os.path.getsize(temp_path) > 0
                 ):
+                    if should_play is not None and not self._still_wanted(should_play):
+                        return
                     self.audio_playing = True
                     try:
                         play_mp3(temp_path)

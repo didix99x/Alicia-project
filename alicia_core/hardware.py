@@ -72,6 +72,24 @@ class HardwareMonitor:
         except Exception as e:
             logger.debug(f"Erro obtendo processo ativo: {e}")
             return "Desconhecido"
+    @staticmethod
+    def get_active_window_rect():
+        """(esquerda, topo, direita, base) da janela em primeiro plano no Windows; None se não der para saber."""
+        if sys.platform != "win32" or not HAS_WIN32:
+            return None
+        try:
+            from ctypes import wintypes
+            hwnd = user32.GetForegroundWindow()
+            if not hwnd:
+                return None
+            rect = wintypes.RECT()
+            if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                return None
+            return (rect.left, rect.top, rect.right, rect.bottom)
+        except Exception as e:
+            logger.debug(f"Erro obtendo o retângulo da janela ativa: {e}")
+            return None
+
     @classmethod
     def capture_snapshot(cls) -> HardwareSnapshot:
         snapshot = HardwareSnapshot()

@@ -75,3 +75,59 @@ class ScreenAnalyzerEngine:
             return round((sum(stat.mean) / len(stat.mean) / 255.0) * 100.0, 2)
         except Exception:
             return 100.0
+
+    # ------------------------------------------------------------------
+    # CAPTURA PARA A OBSERVADORA (resolução total, monitor certo)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def pick_monitor(monitors: list, mode: str = "active", window_rect=None) -> dict:
+        """Escolhe o monitor a capturar. `monitors` segue o formato do mss (índice 0 = área virtual de todos).
+
+        "active"  -> o monitor onde está o centro da janela ativa (cai para o primário se não souber);
+        "primary" -> o primeiro monitor físico;  "all" -> a área virtual inteira.
+        Capturar tudo e reduzir para 1280 px (o que o laço antigo fazia) deixa o texto ilegível em PCs com 2+ monitores.
+        """
+        physical = monitors[1:] if len(monitors) > 1 else monitors[:1]
+        if mode == "all" and len(monitors) > 1:
+            return monitors[0]
+        if mode == "active" and window_rect and physical:
+            left, top, right, bottom = window_rect
+            cx, cy = (left + right) // 2, (top + bottom) // 2
+            for m in physical:
+                if m["left"] <= cx < m["left"] + m["width"] and m["top"] <= cy < m["top"] + m["height"]:
+                    return m
+        return physical[0]
+
+    def capture_raw(self, mode: str = "active", window_rect=None) -> Image.Image:
+        """Captura SEM reduzir (o OCR precisa da resolução real). Levanta RuntimeError com a causa se falhar."""
+        errors = []
+        if HAS_MSS:
+            try:
+                with mss.mss() as sct:
+                    monitor = self.pick_monitor(sct.monitors, mode, window_rect)
+                    shot = sct.grab(monitor)
+                    img = Image.frombytes("RGB", shot.size, shot.rgb)
+                    self.last_capture_error = ""
+                    return img
+            except Exception as e:
+                errors.append(f"mss: {e}")
+        try:
+            try:
+                img = ImageGrab.grab(all_screens=(mode == "all")).convert("RGB")
+            except TypeError:
+                img = ImageGrab.grab().convert("RGB")
+            if img.width < 2 or img.height < 2:
+                raise RuntimeError("captura vazia")
+            self.last_capture_error = ""
+            return img
+        except Exception as e:
+            errors.append(f"ImageGrab: {e}")
+        try:                                            # último recurso: o método de captura antigo
+            img = self._capture()
+            if img is not None and img.width >= 2 and img.height >= 2:
+                self.last_capture_error = ""
+                return img.convert("RGB")
+        except Exception as e:
+            errors.append(f"captura clássica: {e}")
+        self.last_capture_error = " | ".join(errors) or "Nenhum backend de captura disponível"
+        raise RuntimeError(self.last_capture_error)

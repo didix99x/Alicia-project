@@ -127,7 +127,8 @@ class PokerWindow(QWidget):
         db = getattr(core, "db", None)
         self.controller = PokerController(
             scheduler=lambda ms, fn: QTimer.singleShot(ms, fn),
-            personality_getter=lambda: core.get_personality() if hasattr(core, "get_personality") else "normal",
+            personality_getter=lambda: (core.get_table_personality() if hasattr(core, "get_table_personality")
+                                        else core.get_personality() if hasattr(core, "get_personality") else "normal"),
             name_getter=lambda: (db.get_user_name() if db else "") or "",
             stats_store=DbStatsStore(db) if db else None,
         )
@@ -142,7 +143,8 @@ class PokerWindow(QWidget):
         self.talk: Optional[PokerTalk] = None
         client = getattr(core, "nvidia", None)
         if client is not None and getattr(client, "has_key", False):
-            self.talk = PokerTalk(client, personality_getter=self.controller.personality, name_getter=self.controller.name)
+            self.talk = PokerTalk(client, personality_getter=self.controller.personality, name_getter=self.controller.name,
+                                  overlay_getter=(lambda t="": core.unfiltered.overlay("poker", t).system) if hasattr(core, "unfiltered") else None)
             self.controller.narrator = self._narrate          # sem _safe: se falhar, o controlador usa a fala pronta
         self.narration_ready.connect(self._safe(self._on_narration))
         self.chat_reply.connect(self._safe(self.show_chat))
